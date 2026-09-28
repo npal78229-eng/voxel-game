@@ -352,6 +352,14 @@ window.addEventListener('keydown', (event) => {
     dayNight.advanceTime(0.12);
     showToast(`Time: ${dayNight.getLabel()}`);
   }
+  if (event.code === 'KeyB') {
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    const sx = controls.position.x + forward.x * 3.2;
+    const sz = controls.position.z + forward.z * 3.2;
+    passiveMobs.spawnMob(sx, sz, 'Pig');
+    sfx.playPlace();
+    showToast('Spawned Blender Pig! 🐷');
+  }
 });
 
 function executeConsoleCommand(cmdStr) {

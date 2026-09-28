@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { BLOCK_BY_ID } from './blocks.js';
+import { createBlenderPigInstance } from './BlenderPig.js';
 
 // ============================================================================
-// Phases U2.3, U3.6, U5 & U6 — Sky System (Sun/Moon/Stars/Clouds/Weather),
-//                              Web Audio SFX, Original Mob Roster & Combat AI
+// Phases U2.3, U3.6, U5 & Blender Pig Integration (src/polish.js)
 // ============================================================================
 
 export class SoundEffectsManager {
@@ -133,17 +133,13 @@ export class SoundEffectsManager {
   }
 }
 
-/**
- * Phase U2.3 & U3.6 — Sky Dome, Visible Sun & Moon Discs, Night Starfield,
- * Drifting 3D Clouds & Weather System ('clear' | 'rain' | 'snow').
- */
 export class DayNightCycle {
   constructor(scene, lights) {
     this.scene = scene;
     this.lights = lights;
-    this.timeOfDay = 0.23; // 0.25 = Noon
+    this.timeOfDay = 0.23;
     this.dayDurationSeconds = 240;
-    this.weather = 'clear'; // 'clear' | 'rain' | 'snow'
+    this.weather = 'clear';
 
     this.noonSky = new THREE.Color(0x7cc8f8);
     this.sunsetSky = new THREE.Color(0xf97316);
@@ -161,13 +157,11 @@ export class DayNightCycle {
     this.celestialGroup = new THREE.Group();
     this.scene.add(this.celestialGroup);
 
-    // Visible Sun Disc
     const sunGeo = new THREE.BoxGeometry(7.5, 7.5, 1.5);
     const sunMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
     this.sunDisc = new THREE.Mesh(sunGeo, sunMat);
     this.celestialGroup.add(this.sunDisc);
 
-    // Visible Moon Disc
     const moonGeo = new THREE.BoxGeometry(6.0, 6.0, 1.5);
     const moonMat = new THREE.MeshBasicMaterial({ color: 0xe2e8f0 });
     this.moonDisc = new THREE.Mesh(moonGeo, moonMat);
@@ -276,7 +270,6 @@ export class DayNightCycle {
     const sunElevation = Math.sin(angle);
     const sunHorizontal = Math.cos(angle);
 
-    // Phase U2.4 — Texel-snapped player follow for zero shadow shimmering
     const snapX = Math.round(playerPosition.x * 2) / 2;
     const snapZ = Math.round(playerPosition.z * 2) / 2;
     const radius = 56;
@@ -289,7 +282,6 @@ export class DayNightCycle {
     this.lights.sunLight.target.position.set(snapX, 16, snapZ);
     this.lights.sunLight.target.updateMatrixWorld();
 
-    // Update visible Sun & Moon discs
     const discRadius = 115;
     this.sunDisc.position.set(
       playerPosition.x + sunHorizontal * discRadius,
@@ -305,11 +297,9 @@ export class DayNightCycle {
     );
     this.moonDisc.lookAt(playerPosition);
 
-    // Starfield fade-in at night
     this.stars.position.set(playerPosition.x, 0, playerPosition.z);
     this.starMat.opacity = Math.max(0, Math.min(0.95, -sunElevation * 1.4));
 
-    // Drift clouds slowly
     for (const cloud of this.cloudGroup.children) {
       cloud.position.x += deltaTime * 1.1;
       if (cloud.position.x - playerPosition.x > 65) cloud.position.x -= 130;
@@ -318,7 +308,6 @@ export class DayNightCycle {
       if (cloud.position.z - playerPosition.z < -65) cloud.position.z += 130;
     }
 
-    // Animate weather particles
     if (this.weatherPoints.visible) {
       this.weatherPoints.position.set(
         playerPosition.x,
@@ -335,7 +324,6 @@ export class DayNightCycle {
       posAttr.needsUpdate = true;
     }
 
-    // Sky & lighting color transitions (keeping night moonlit and readable per Phase U2.3)
     if (sunElevation > 0.2) {
       const f = Math.min(1, (sunElevation - 0.2) / 0.8);
       this.currentSky.copy(this.sunsetSky).lerp(this.noonSky, f);
@@ -351,7 +339,7 @@ export class DayNightCycle {
     } else {
       this.currentSky.copy(this.nightSky);
       this.lights.sunLight.intensity = 0.26;
-      this.lights.ambientLight.intensity = 0.28; // Readable moonlight
+      this.lights.ambientLight.intensity = 0.28;
       this.lights.ambientLight.color.setHex(0x93c5fd);
     }
 
@@ -366,18 +354,15 @@ export class DayNightCycle {
   }
 }
 
-/**
- * Phase U5 — Original Mob Roster ('Snorter', 'Moo-Beast', 'Woolback', 'Cluck',
- * 'Shambler', 'Bonewalker', 'Crawler', 'Bloater') with AI State Machine & Combat.
- */
 const MOB_SPECS = [
   {
-    type: 'Snorter',
+    type: 'Pig',
+    isBlenderPig: true,
     hostile: false,
-    color: 0xf4a2b8,
-    accent: 0xdb7093,
-    maxHp: 10,
-    speed: 1.35,
+    color: 0xf78ca2,
+    accent: 0xeb6383,
+    maxHp: 12,
+    speed: 1.4,
     drop: 'dirt',
   },
   {
@@ -440,30 +425,75 @@ const MOB_SPECS = [
 ];
 
 export class PassiveMobManager {
-  constructor(scene, world, count = 10) {
+  constructor(scene, world, count = 12) {
     this.scene = scene;
     this.world = world;
     this.mobs = [];
 
-    for (let i = 0; i < count; i++) {
+    // Spawn a herd of 5 Blender Pigs right in front of the player at spawn (8, z=7..9)
+    // so they are immediately visible on startup, followed by the rest of the world mobs!
+    const nearPigPositions = [
+      [8.0, 7.2],
+      [6.4, 7.8],
+      [9.6, 7.8],
+      [7.2, 5.8],
+      [9.0, 6.0],
+    ];
+    for (let i = 0; i < nearPigPositions.length; i++) {
+      const [px, pz] = nearPigPositions[i];
+      this.mobs.push(this._createMob(MOB_SPECS[0], i, px, pz));
+    }
+
+    for (let i = nearPigPositions.length; i < count; i++) {
       const spec = MOB_SPECS[i % MOB_SPECS.length];
       this.mobs.push(this._createMob(spec, i));
     }
   }
 
   spawnMobAt(typeOrSpec, x, z) {
+    const q = String(typeOrSpec || 'Pig').toLowerCase();
     const spec =
-      MOB_SPECS.find(
-        (s) => s.type.toLowerCase() === String(typeOrSpec).toLowerCase()
-      ) || MOB_SPECS[0];
+      q === 'pig' || q === 'snorter' || q === 'blenderpig'
+        ? MOB_SPECS[0]
+        : MOB_SPECS.find((s) => s.type.toLowerCase() === q) || MOB_SPECS[0];
     const mob = this._createMob(spec, this.mobs.length, x, z);
     this.mobs.push(mob);
     return mob.spec.type;
   }
 
   _createMob(spec, index, customX = null, customZ = null) {
-    const group = new THREE.Group();
+    const angle = (index / 12) * Math.PI * 2;
+    const x = customX !== null ? customX : 8 + Math.cos(angle) * 11;
+    const z = customZ !== null ? customZ : 8 + Math.sin(angle) * 11;
+    const y = this.world.getSurfaceHeight(x, z) + 0.5;
 
+    // Use the exact sculpted Blender Pig (`make_pig.py`) for Pig mobs!
+    if (spec.isBlenderPig) {
+      const pigRig = createBlenderPigInstance();
+      pigRig.group.position.set(x, y, z);
+      this.scene.add(pigRig.group);
+
+      return {
+        spec,
+        group: pigRig.group,
+        bodyMat: pigRig.bodyMat,
+        baseColor: pigRig.baseColor,
+        legs: pigRig.legs,
+        headGroup: pigRig.headGroup,
+        tailPivot: pigRig.tailPivot,
+        hp: spec.maxHp,
+        maxHp: spec.maxHp,
+        state: 'Wander',
+        yaw: Math.random() * Math.PI * 2,
+        timer: 1.5 + Math.random() * 2.5,
+        hurtTimer: 0,
+        attackCooldown: 0,
+        animPhase: Math.random() * 10,
+        deadTimer: 0,
+      };
+    }
+
+    const group = new THREE.Group();
     const bodyMat = new THREE.MeshStandardMaterial({
       color: spec.color,
       roughness: 0.75,
@@ -476,7 +506,6 @@ export class PassiveMobManager {
       color: spec.hostile ? 0xef4444 : 0x0f172a,
     });
 
-    // Body
     const isTall = spec.type === 'Shambler' || spec.type === 'Bloater';
     const body = new THREE.Mesh(
       new THREE.BoxGeometry(0.54, isTall ? 0.82 : 0.44, isTall ? 0.34 : 0.8),
@@ -486,7 +515,6 @@ export class PassiveMobManager {
     body.castShadow = true;
     group.add(body);
 
-    // Head
     const head = new THREE.Mesh(
       new THREE.BoxGeometry(0.42, 0.4, 0.42),
       accentMat
@@ -522,24 +550,20 @@ export class PassiveMobManager {
       legs.push(leg);
     }
 
-    const angle = (index / 10) * Math.PI * 2;
-    const x = customX !== null ? customX : 8 + Math.cos(angle) * 11;
-    const z = customZ !== null ? customZ : 8 + Math.sin(angle) * 11;
-    const y = this.world.getSurfaceHeight(x, z) + 0.5;
     group.position.set(x, y, z);
-
     this.scene.add(group);
 
     return {
       spec,
       group,
       bodyMat,
-      accentMat,
       baseColor: new THREE.Color(spec.color),
       legs,
+      headGroup: null,
+      tailPivot: null,
       hp: spec.maxHp,
       maxHp: spec.maxHp,
-      state: 'Wander', // 'Idle' | 'Wander' | 'Flee' | 'Chase'
+      state: 'Wander',
       yaw: Math.random() * Math.PI * 2,
       timer: 1.5 + Math.random() * 2.5,
       hurtTimer: 0,
@@ -549,9 +573,6 @@ export class PassiveMobManager {
     };
   }
 
-  /**
-   * Phase U5.6 — Ray-vs-Mob AABB hit test for player melee combat (reach = 3.6 blocks).
-   */
   tryAttackMob(origin, direction, damage = 4) {
     const dir = direction.clone().normalize();
     let closestMob = null;
@@ -567,7 +588,7 @@ export class PassiveMobManager {
       if (proj < 0 || proj > closestDist) continue;
 
       const perpSq = toMob.lengthSq() - proj * proj;
-      if (perpSq <= 0.65 * 0.65) {
+      if (perpSq <= 0.68 * 0.68) {
         closestDist = proj;
         closestMob = mob;
       }
@@ -579,7 +600,6 @@ export class PassiveMobManager {
     closestMob.hurtTimer = 0.24;
     closestMob.bodyMat.color.setHex(0xef4444);
 
-    // Knockback away from player
     const kb = closestMob.group.position
       .clone()
       .sub(origin)
@@ -620,13 +640,12 @@ export class PassiveMobManager {
           mob.group.rotation.z + deltaTime * 4
         );
         if (mob.deadTimer <= 0) {
-          // Respawn mob smoothly at perimeter
           mob.hp = mob.maxHp;
           mob.group.rotation.z = 0;
           mob.bodyMat.color.copy(mob.baseColor);
           const a = Math.random() * Math.PI * 2;
-          mob.group.position.x = playerPosition.x + Math.cos(a) * 18;
-          mob.group.position.z = playerPosition.z + Math.sin(a) * 18;
+          mob.group.position.x = playerPosition.x + Math.cos(a) * 14;
+          mob.group.position.z = playerPosition.z + Math.sin(a) * 14;
         }
         continue;
       }
@@ -646,7 +665,6 @@ export class PassiveMobManager {
       const dz = playerPosition.z - mob.group.position.z;
       const distSq = dx * dx + dz * dz;
 
-      // Hostile AI: Chase player at night or when close
       if (mob.spec.hostile && (isNight || distSq < 9 * 9) && distSq < 18 * 18) {
         mob.state = 'Chase';
         mob.yaw = Math.atan2(-dx, -dz);
@@ -660,7 +678,7 @@ export class PassiveMobManager {
       } else {
         mob.timer -= deltaTime;
         if (mob.timer <= 0) {
-          mob.state = Math.random() > 0.3 ? 'Wander' : 'Idle';
+          mob.state = Math.random() > 0.25 ? 'Wander' : 'Idle';
           mob.yaw += (Math.random() - 0.5) * 2.2;
           mob.timer = 1.8 + Math.random() * 2.5;
         }
@@ -676,12 +694,14 @@ export class PassiveMobManager {
         mob.group.position.z +=
           -Math.cos(mob.yaw) * mob.spec.speed * speedMult * deltaTime;
         mob.animPhase += deltaTime * 8 * speedMult;
+      } else {
+        mob.animPhase += deltaTime * 2.5;
       }
 
       if (distSq > 34 * 34) {
         const a = Math.random() * Math.PI * 2;
-        mob.group.position.x = playerPosition.x + Math.cos(a) * 18;
-        mob.group.position.z = playerPosition.z + Math.sin(a) * 18;
+        mob.group.position.x = playerPosition.x + Math.cos(a) * 14;
+        mob.group.position.z = playerPosition.z + Math.sin(a) * 14;
       }
 
       const groundY = this.world.getSurfaceHeight(
@@ -691,11 +711,20 @@ export class PassiveMobManager {
       mob.group.position.y = groundY + 0.5;
       mob.group.rotation.y = mob.yaw;
 
-      const swing = isMoving ? Math.sin(mob.animPhase) * 0.48 : 0;
+      // Animate legs (opposite pairs)
+      const swing = isMoving ? Math.sin(mob.animPhase) * 0.45 : 0;
       mob.legs[0].rotation.x = swing;
       mob.legs[1].rotation.x = -swing;
       mob.legs[2].rotation.x = -swing;
       mob.legs[3].rotation.x = swing;
+
+      // Animate Blender Pig's head nod & 3D helical curly tail wag!
+      if (mob.headGroup) {
+        mob.headGroup.rotation.x = Math.sin(mob.animPhase * 0.5) * 0.08;
+      }
+      if (mob.tailPivot) {
+        mob.tailPivot.rotation.z = Math.sin(mob.animPhase * 2.0) * 0.38;
+      }
     }
   }
 }

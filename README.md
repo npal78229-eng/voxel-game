@@ -150,9 +150,26 @@ Press **`/`** during gameplay to open the command bar and run any of the followi
 | `/weather <clear\|rain\|snow>` | `/weather rain` | Switches active weather particle system and sky tint |
 | `/gamemode <fly\|survival>` | `/gamemode fly` | Toggles between Free Fly and `0.6×1.8` AABB Gravity/Collision mode |
 | `/give <blockId> <count>` | `/give gem_ore 32` | Adds a stack of any block/ore (`gem_ore`, `gold_ore`, `torch`, `brick`, etc.) |
-| `/spawn <MobType>` | `/spawn Shambler` | Spawns a mob (`Snorter`, `Moo-Beast`, `Woolback`, `Cluck`, `Shambler`, `Crawler`, `Bloater`) |
+| `/spawn <MobType>` | `/spawn pig` | Spawns a mob (`Pig` / `Snorter`, `Moo-Beast`, `Woolback`, `Cluck`, `Shambler`, `Crawler`, `Bloater`) |
 | `/tp <x> <y> <z>` | `/tp 0 35 0` | Teleports player to world coordinates `(x, y, z)` and streams surrounding chunks |
 | `/heal` | `/heal` | Restores all 10 Health Hearts (`20 HP`) and 10 Stamina pips |
+
+---
+
+## 🐷 Custom Blender Pig Mob (`pig.blend` & `src/BlenderPig.js`)
+
+![Blender Sculpted Pig Preview](public/assets/models/pig_render.png)
+
+A custom 3D pig sculpted in Blender (`tools/blender/pig.blend` & `tools/blender/make_pig.py`) is integrated as an animated mob in the game via `src/BlenderPig.js` and `src/polish.js`:
+- **Exact Blender Anatomy & PBR Palette:**
+  - Plump pink torso (`#f78ca2`, subsurface warm roughness) & softly flattened belly
+  - Sculpted head with rounded bevel snout (`#eb6383`), carved nostril indentations (`#3b1018`), rosy cheek blush ovals (`#f7456b`), glossy dark eyes (`#0d0d12`) with glowing cornea catchlight spheres (`#ffffff`), and droopy outer/inner ears
+  - **4 Articulated Legs & Cloven Hooves** (`#54342e`) with walking/fleeing swing pivots
+  - **50-Point Helical 3D Curly Tail** (`THREE.CatmullRomCurve3` + `TubeGeometry`) that continuously wags while wandering
+- **How to See / Spawn in Game:**
+  - A herd of **5 Blender Pigs** automatically spawns directly in front of you at world start.
+  - Press **`B`** at any time during gameplay to spawn a new Blender Pig right in front of your camera (`Spawned Blender Pig! 🐷`).
+  - Or run **`/spawn pig`** in the `/` command console.
 
 ---
 
