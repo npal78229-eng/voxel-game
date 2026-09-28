@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import { BLOCK_BY_ID } from './blocks.js';
-import { createBlenderPigInstance } from './BlenderPig.js';
+import {
+  createBlenderMobInstance,
+  ALL_14_BLENDER_MOB_TYPES,
+} from './BlenderMobs.js';
 
 // ============================================================================
-// Phases U2.3, U3.6, U5 & Blender Pig Integration (src/polish.js)
+// Phases U2.3, U3.6, U5 & Complete 14-Mob Blender Suite (src/polish.js)
 // ============================================================================
 
 export class SoundEffectsManager {
@@ -354,217 +357,131 @@ export class DayNightCycle {
   }
 }
 
-const MOB_SPECS = [
-  {
-    type: 'Pig',
-    isBlenderPig: true,
-    hostile: false,
-    color: 0xf78ca2,
-    accent: 0xeb6383,
-    maxHp: 12,
-    speed: 1.4,
-    drop: 'dirt',
-  },
-  {
-    type: 'Moo-Beast',
-    hostile: false,
-    color: 0x78350f,
-    accent: 0xfef3c7,
-    maxHp: 12,
-    speed: 1.15,
-    drop: 'wood',
-  },
-  {
-    type: 'Woolback',
-    hostile: false,
-    color: 0xf8fafc,
-    accent: 0xcbd5e1,
-    maxHp: 10,
-    speed: 1.25,
-    drop: 'snow',
-  },
-  {
-    type: 'Cluck',
-    hostile: false,
-    color: 0xfef08a,
-    accent: 0xef4444,
-    maxHp: 6,
-    speed: 1.6,
-    drop: 'sand',
-  },
-  {
-    type: 'Shambler',
-    hostile: true,
-    color: 0x4d7c0f,
-    accent: 0x1e3a8a,
-    maxHp: 16,
-    speed: 1.95,
-    damage: 2,
-    drop: 'cobblestone',
-  },
-  {
-    type: 'Crawler',
-    hostile: true,
-    color: 0x1e293b,
-    accent: 0xdc2626,
-    maxHp: 12,
-    speed: 2.3,
-    damage: 2,
-    drop: 'coal_ore',
-  },
-  {
-    type: 'Bloater',
-    hostile: true,
-    color: 0x22c55e,
-    accent: 0x14532d,
-    maxHp: 14,
-    speed: 1.8,
-    damage: 4,
-    drop: 'brick',
-  },
+export const MOB_SPECS = [
+  { type: 'Pig', label: 'Sculpted Pig 🐷', hostile: false, maxHp: 12, speed: 1.35, drop: 'dirt' },
+  { type: 'Dog', label: 'German Shepherd Dog 🐕', hostile: false, maxHp: 18, speed: 1.75, drop: 'wood' },
+  { type: 'Cow', label: 'Spotted Dairy Cow 🐄', hostile: false, maxHp: 14, speed: 1.15, drop: 'dirt' },
+  { type: 'Sheep', label: 'Fluffy Wool Sheep 🐑', hostile: false, maxHp: 12, speed: 1.25, drop: 'snow' },
+  { type: 'Rabbit', label: 'White Cotton-Tail Rabbit 🐇', hostile: false, maxHp: 8, speed: 1.85, drop: 'grass' },
+  { type: 'Bird', label: 'Crimson Raptor Falcon 🦅', hostile: false, maxHp: 10, speed: 1.9, drop: 'sand' },
+  { type: 'Cat', label: 'Ginger & Cream Cat 🐈', hostile: false, maxHp: 10, speed: 1.65, drop: 'sand' },
+  { type: 'Chicken', label: 'Farm Chicken 🐔', hostile: false, maxHp: 6, speed: 1.5, drop: 'sand' },
+  { type: 'Wolf', label: 'Red-Eyed Dire Wolf 🐺', hostile: true, maxHp: 18, speed: 2.05, damage: 3, drop: 'coal_ore' },
+  { type: 'Monkey', label: 'Feral Mandrill Rage Ape 🦍', hostile: true, maxHp: 22, speed: 1.95, damage: 3, drop: 'wood' },
+  { type: 'ShadowStalker', label: 'Shadow Stalker Wendigo 💀', hostile: true, maxHp: 26, speed: 2.1, damage: 4, drop: 'obsidian' },
+  { type: 'BloodCrawler', label: 'Abyssal Blood Crawler 🕷️', hostile: true, maxHp: 20, speed: 2.35, damage: 3, drop: 'redstone_ore' },
+  { type: 'GrimWraith', label: 'Grim Wraith Soul Reaper 👻', hostile: true, maxHp: 24, speed: 2.0, damage: 4, drop: 'gem_ore' },
+  { type: 'FleshGhoul', label: 'Mutant Flesh Ghoul 🧟', hostile: true, maxHp: 24, speed: 1.85, damage: 4, drop: 'mossy_cobble' },
 ];
 
 export class PassiveMobManager {
-  constructor(scene, world, count = 12) {
+  constructor(scene, world, count = 14) {
     this.scene = scene;
     this.world = world;
     this.mobs = [];
+    this.cycleIndex = 0;
 
-    // Spawn a herd of 5 Blender Pigs right in front of the player at spawn (8, z=7..9)
-    // so they are immediately visible on startup, followed by the rest of the world mobs!
-    const nearPigPositions = [
-      [8.0, 7.2],
-      [6.4, 7.8],
-      [9.6, 7.8],
-      [7.2, 5.8],
-      [9.0, 6.0],
+    // Spawn all 14 Blender Mobs around the player at startup:
+    // - Daytime & Companion animals (0..7) in a welcoming semicircle right in front of spawn (8, 5..8)
+    // - Feral & Night Horror mobs (8..13) on the outer perimeter ring (radius 12..15)
+    const initialSpawns = [
+      ['Pig', 8.0, 6.8],
+      ['Dog', 6.2, 7.2],
+      ['Cow', 9.8, 7.2],
+      ['Sheep', 4.6, 8.2],
+      ['Rabbit', 7.1, 5.6],
+      ['Bird', 8.9, 5.6],
+      ['Cat', 11.4, 8.2],
+      ['Chicken', 5.6, 6.0],
+      ['Wolf', 10.6, 5.8],
+      ['Monkey', 3.4, 6.4],
+      ['ShadowStalker', 2.0, 2.0],
+      ['BloodCrawler', 14.0, 2.0],
+      ['GrimWraith', 8.0, -1.5],
+      ['FleshGhoul', 15.0, 5.0],
     ];
-    for (let i = 0; i < nearPigPositions.length; i++) {
-      const [px, pz] = nearPigPositions[i];
-      this.mobs.push(this._createMob(MOB_SPECS[0], i, px, pz));
-    }
 
-    for (let i = nearPigPositions.length; i < count; i++) {
-      const spec = MOB_SPECS[i % MOB_SPECS.length];
-      this.mobs.push(this._createMob(spec, i));
+    const total = Math.max(count, initialSpawns.length);
+    for (let i = 0; i < total; i++) {
+      if (i < initialSpawns.length) {
+        const [mType, mx, mz] = initialSpawns[i];
+        const spec = MOB_SPECS.find((s) => s.type === mType) || MOB_SPECS[0];
+        this.mobs.push(this._createMob(spec, i, mx, mz));
+      } else {
+        const spec = MOB_SPECS[i % MOB_SPECS.length];
+        this.mobs.push(this._createMob(spec, i));
+      }
     }
+  }
+
+  _resolveSpec(typeOrSpec) {
+    if (typeOrSpec && typeof typeOrSpec === 'object' && typeOrSpec.type) {
+      return typeOrSpec;
+    }
+    const q = String(typeOrSpec || 'Pig').toLowerCase().replace(/[\s_-]/g, '');
+    const aliasMap = {
+      snorter: 'Pig',
+      blenderpig: 'Pig',
+      moobeast: 'Cow',
+      woolback: 'Sheep',
+      cluck: 'Chicken',
+      shambler: 'ShadowStalker',
+      wendigo: 'ShadowStalker',
+      crawler: 'BloodCrawler',
+      spider: 'BloodCrawler',
+      wraith: 'GrimWraith',
+      reaper: 'GrimWraith',
+      bloater: 'FleshGhoul',
+      ghoul: 'FleshGhoul',
+    };
+    const canonical = aliasMap[q] || q;
+    return (
+      MOB_SPECS.find(
+        (s) => s.type.toLowerCase().replace(/[\s_-]/g, '') === canonical
+      ) || MOB_SPECS[0]
+    );
+  }
+
+  spawnMob(x, z, typeOrSpec = null) {
+    const spec = typeOrSpec
+      ? this._resolveSpec(typeOrSpec)
+      : MOB_SPECS[this.cycleIndex++ % MOB_SPECS.length];
+    const mob = this._createMob(spec, this.mobs.length, x, z);
+    this.mobs.push(mob);
+    return mob.spec;
   }
 
   spawnMobAt(typeOrSpec, x, z) {
-    const q = String(typeOrSpec || 'Pig').toLowerCase();
-    const spec =
-      q === 'pig' || q === 'snorter' || q === 'blenderpig'
-        ? MOB_SPECS[0]
-        : MOB_SPECS.find((s) => s.type.toLowerCase() === q) || MOB_SPECS[0];
-    const mob = this._createMob(spec, this.mobs.length, x, z);
-    this.mobs.push(mob);
-    return mob.spec.type;
+    const spec = this.spawnMob(x, z, typeOrSpec);
+    return spec.type;
   }
 
   _createMob(spec, index, customX = null, customZ = null) {
-    const angle = (index / 12) * Math.PI * 2;
+    const angle = (index / ALL_14_BLENDER_MOB_TYPES.length) * Math.PI * 2;
     const x = customX !== null ? customX : 8 + Math.cos(angle) * 11;
     const z = customZ !== null ? customZ : 8 + Math.sin(angle) * 11;
     const y = this.world.getSurfaceHeight(x, z) + 0.5;
 
-    // Use the exact sculpted Blender Pig (`make_pig.py`) for Pig mobs!
-    if (spec.isBlenderPig) {
-      const pigRig = createBlenderPigInstance();
-      pigRig.group.position.set(x, y, z);
-      this.scene.add(pigRig.group);
-
-      return {
-        spec,
-        group: pigRig.group,
-        bodyMat: pigRig.bodyMat,
-        baseColor: pigRig.baseColor,
-        legs: pigRig.legs,
-        headGroup: pigRig.headGroup,
-        tailPivot: pigRig.tailPivot,
-        hp: spec.maxHp,
-        maxHp: spec.maxHp,
-        state: 'Wander',
-        yaw: Math.random() * Math.PI * 2,
-        timer: 1.5 + Math.random() * 2.5,
-        hurtTimer: 0,
-        attackCooldown: 0,
-        animPhase: Math.random() * 10,
-        deadTimer: 0,
-      };
-    }
-
-    const group = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: spec.color,
-      roughness: 0.75,
-    });
-    const accentMat = new THREE.MeshStandardMaterial({
-      color: spec.accent,
-      roughness: 0.75,
-    });
-    const eyeMat = new THREE.MeshBasicMaterial({
-      color: spec.hostile ? 0xef4444 : 0x0f172a,
-    });
-
-    const isTall = spec.type === 'Shambler' || spec.type === 'Bloater';
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(0.54, isTall ? 0.82 : 0.44, isTall ? 0.34 : 0.8),
-      bodyMat
-    );
-    body.position.set(0, isTall ? 0.72 : 0.46, 0);
-    body.castShadow = true;
-    group.add(body);
-
-    const head = new THREE.Mesh(
-      new THREE.BoxGeometry(0.42, 0.4, 0.42),
-      accentMat
-    );
-    head.position.set(0, isTall ? 1.32 : 0.64, isTall ? 0 : -0.44);
-    head.castShadow = true;
-    group.add(head);
-
-    const leftEye = new THREE.Mesh(
-      new THREE.BoxGeometry(0.07, 0.07, 0.02),
-      eyeMat
-    );
-    leftEye.position.set(-0.1, isTall ? 1.35 : 0.68, isTall ? -0.22 : -0.66);
-    const rightEye = leftEye.clone();
-    rightEye.position.x = 0.1;
-    group.add(leftEye, rightEye);
-
-    const legs = [];
-    const legPositions = [
-      [-0.16, 0.16, -0.22],
-      [0.16, 0.16, -0.22],
-      [-0.16, 0.16, 0.22],
-      [0.16, 0.16, 0.22],
-    ];
-    for (const [lx, ly, lz] of legPositions) {
-      const leg = new THREE.Mesh(
-        new THREE.BoxGeometry(0.14, 0.32, 0.14),
-        bodyMat
-      );
-      leg.position.set(lx, ly, lz);
-      leg.castShadow = true;
-      group.add(leg);
-      legs.push(leg);
-    }
-
-    group.position.set(x, y, z);
-    this.scene.add(group);
+    const rig = createBlenderMobInstance(spec.type);
+    rig.group.position.set(x, y, z);
+    // Face toward the player spawn initially
+    const initYaw = Math.atan2(-(8 - x), -(11 - z));
+    rig.group.rotation.y = initYaw;
+    this.scene.add(rig.group);
 
     return {
       spec,
-      group,
-      bodyMat,
-      baseColor: new THREE.Color(spec.color),
-      legs,
-      headGroup: null,
-      tailPivot: null,
+      group: rig.group,
+      bodyMat: rig.bodyMat,
+      baseColor: rig.baseColor,
+      legs: rig.legs || [],
+      arms: rig.arms || [],
+      headGroup: rig.headGroup,
+      tailPivot: rig.tailPivot,
       hp: spec.maxHp,
       maxHp: spec.maxHp,
       state: 'Wander',
-      yaw: Math.random() * Math.PI * 2,
+      yaw: initYaw,
       timer: 1.5 + Math.random() * 2.5,
       hurtTimer: 0,
       attackCooldown: 0,
@@ -576,19 +493,19 @@ export class PassiveMobManager {
   tryAttackMob(origin, direction, damage = 4) {
     const dir = direction.clone().normalize();
     let closestMob = null;
-    let closestDist = 3.8;
+    let closestDist = 4.2;
 
     for (const mob of this.mobs) {
       if (mob.hp <= 0) continue;
       const toMob = mob.group.position
         .clone()
-        .add(new THREE.Vector3(0, 0.6, 0))
+        .add(new THREE.Vector3(0, 0.65, 0))
         .sub(origin);
       const proj = toMob.dot(dir);
       if (proj < 0 || proj > closestDist) continue;
 
       const perpSq = toMob.lengthSq() - proj * proj;
-      if (perpSq <= 0.68 * 0.68) {
+      if (perpSq <= 0.85 * 0.85) {
         closestDist = proj;
         closestMob = mob;
       }
@@ -665,11 +582,12 @@ export class PassiveMobManager {
       const dz = playerPosition.z - mob.group.position.z;
       const distSq = dx * dx + dz * dz;
 
-      if (mob.spec.hostile && (isNight || distSq < 9 * 9) && distSq < 18 * 18) {
+      if (mob.spec.hostile && (isNight || distSq < 8 * 8) && distSq < 18 * 18) {
         mob.state = 'Chase';
-        mob.yaw = Math.atan2(-dx, -dz);
+        // Our Blender->Three basis places +Z as forward, so Math.atan2(dx, dz) faces player
+        mob.yaw = Math.atan2(dx, dz);
 
-        if (distSq < 1.75 * 1.75 && mob.attackCooldown <= 0) {
+        if (distSq < 1.85 * 1.85 && mob.attackCooldown <= 0) {
           mob.attackCooldown = 1.35;
           if (typeof onPlayerDamaged === 'function') {
             onPlayerDamaged(mob.spec.damage || 2, mob.spec.type);
@@ -690,15 +608,15 @@ export class PassiveMobManager {
 
       if (isMoving) {
         mob.group.position.x +=
-          -Math.sin(mob.yaw) * mob.spec.speed * speedMult * deltaTime;
+          Math.sin(mob.yaw) * mob.spec.speed * speedMult * deltaTime;
         mob.group.position.z +=
-          -Math.cos(mob.yaw) * mob.spec.speed * speedMult * deltaTime;
+          Math.cos(mob.yaw) * mob.spec.speed * speedMult * deltaTime;
         mob.animPhase += deltaTime * 8 * speedMult;
       } else {
         mob.animPhase += deltaTime * 2.5;
       }
 
-      if (distSq > 34 * 34) {
+      if (distSq > 36 * 36) {
         const a = Math.random() * Math.PI * 2;
         mob.group.position.x = playerPosition.x + Math.cos(a) * 14;
         mob.group.position.z = playerPosition.z + Math.sin(a) * 14;
@@ -708,22 +626,45 @@ export class PassiveMobManager {
         mob.group.position.x,
         mob.group.position.z
       );
-      mob.group.position.y = groundY + 0.5;
+      let verticalOffset = 0.5;
+      if (mob.spec.type === 'GrimWraith') {
+        verticalOffset = 0.72 + Math.sin(mob.animPhase * 1.2) * 0.18;
+      } else if (mob.spec.type === 'Bird' && isMoving) {
+        verticalOffset = 0.65 + Math.abs(Math.sin(mob.animPhase * 1.5)) * 0.25;
+      } else if (mob.spec.type === 'Rabbit' && isMoving) {
+        verticalOffset = 0.5 + Math.abs(Math.sin(mob.animPhase * 1.2)) * 0.22;
+      }
+      mob.group.position.y = groundY + verticalOffset;
       mob.group.rotation.y = mob.yaw;
 
-      // Animate legs (opposite pairs)
-      const swing = isMoving ? Math.sin(mob.animPhase) * 0.45 : 0;
-      mob.legs[0].rotation.x = swing;
-      mob.legs[1].rotation.x = -swing;
-      mob.legs[2].rotation.x = -swing;
-      mob.legs[3].rotation.x = swing;
+      // Animate legs (in Blender local coordinates, pitching forward/back is rotation.y)
+      const swing = isMoving ? Math.sin(mob.animPhase) * 0.42 : 0;
+      if (mob.legs && mob.legs.length >= 4) {
+        mob.legs[0].rotation.y = swing;
+        mob.legs[1].rotation.y = -swing;
+        mob.legs[2].rotation.y = -swing;
+        mob.legs[3].rotation.y = swing;
+      }
 
-      // Animate Blender Pig's head nod & 3D helical curly tail wag!
+      // Animate wings (Bird/Chicken flap around X) or arms/scythe (Monkey/Wendigo/Wraith/Ghoul slash around Y)
+      if (mob.arms && mob.arms.length >= 2) {
+        if (mob.spec.type === 'Bird' || mob.spec.type === 'Chicken') {
+          const flap = Math.sin(mob.animPhase * 2.4) * (isMoving ? 0.55 : 0.15);
+          mob.arms[0].rotation.x = flap;
+          mob.arms[1].rotation.x = -flap;
+        } else {
+          const armSwing = Math.sin(mob.animPhase * 1.2) * (isMoving ? 0.48 : 0.12);
+          mob.arms[0].rotation.y = armSwing;
+          mob.arms[1].rotation.y = -armSwing;
+        }
+      }
+
+      // Animate head nod & tail wag
       if (mob.headGroup) {
-        mob.headGroup.rotation.x = Math.sin(mob.animPhase * 0.5) * 0.08;
+        mob.headGroup.rotation.y = Math.sin(mob.animPhase * 0.55) * 0.08;
       }
       if (mob.tailPivot) {
-        mob.tailPivot.rotation.z = Math.sin(mob.animPhase * 2.0) * 0.38;
+        mob.tailPivot.rotation.z = Math.sin(mob.animPhase * 2.0) * 0.35;
       }
     }
   }

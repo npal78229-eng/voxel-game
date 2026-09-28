@@ -156,20 +156,36 @@ Press **`/`** during gameplay to open the command bar and run any of the followi
 
 ---
 
-## 🐷 Custom Blender Pig Mob (`pig.blend` & `src/BlenderPig.js`)
+## 🐾 Complete 14-Mob Blender Suite (`tools/blender/generate_all_mobs.py` & `src/BlenderMobs.js`)
 
-![Blender Sculpted Pig Preview](public/assets/models/pig_render.png)
+![All 14 Sculpted Blender Mobs](public/assets/models/all_mobs_render.png)
 
-A custom 3D pig sculpted in Blender (`tools/blender/pig.blend` & `tools/blender/make_pig.py`) is integrated as an animated mob in the game via `src/BlenderPig.js` and `src/polish.js`:
-- **Exact Blender Anatomy & PBR Palette:**
-  - Plump pink torso (`#f78ca2`, subsurface warm roughness) & softly flattened belly
-  - Sculpted head with rounded bevel snout (`#eb6383`), carved nostril indentations (`#3b1018`), rosy cheek blush ovals (`#f7456b`), glossy dark eyes (`#0d0d12`) with glowing cornea catchlight spheres (`#ffffff`), and droopy outer/inner ears
-  - **4 Articulated Legs & Cloven Hooves** (`#54342e`) with walking/fleeing swing pivots
-  - **50-Point Helical 3D Curly Tail** (`THREE.CatmullRomCurve3` + `TubeGeometry`) that continuously wags while wandering
-- **How to See / Spawn in Game:**
-  - A herd of **5 Blender Pigs** automatically spawns directly in front of you at world start.
-  - Press **`B`** at any time during gameplay to spawn a new Blender Pig right in front of your camera (`Spawned Blender Pig! 🐷`).
-  - Or run **`/spawn pig`** in the `/` command console.
+![Night Horror Blender Mobs](public/assets/models/night_horror_mobs_render.png)
+
+All **14 custom 3D mobs** sculpted in Blender ([tools/blender/generate_all_mobs.py](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/tools/blender/generate_all_mobs.py), [tools/blender/all_mobs.blend](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/tools/blender/all_mobs.blend), and [tools/blender/night_horror_mobs.blend](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/tools/blender/night_horror_mobs.blend)) are integrated as articulated 3D mobs in the game via [src/BlenderMobs.js](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/src/BlenderMobs.js) and [src/polish.js](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/src/polish.js):
+
+### ☀️ Daytime, Companion & Feral Mobs (10)
+1. **`Pig`** — Plump pink body, beveled snout, nostrils, blush cheeks, 4 hooves, 32-point helical curly tail
+2. **`Dog`** — German Shepherd Guard Dog with mahogany/obsidian coat, 8-spike studded leather collar, fangs, tongue & bushy tail
+3. **`Cow`** — Dairy cow with 4 black spots, eye patch, pink muzzle, udder, curved horns & tufted tail
+4. **`Sheep`** — Fluffy wool core + 10 wool puffs, head wool cap, charcoal face & ears
+5. **`Rabbit`** — White cotton-tail bunny with tall pink-lined ears, buck teeth & bounding hop gait
+6. **`Bird`** — Crimson Raptor Falcon with gold-speckled breast, 5 crown crest plumes, hooked golden beak, 12 primary flight feathers & 8 talons
+7. **`Cat`** — Ginger & cream cat with emerald eyes, pink nose & upright S-curve tail
+8. **`Chicken`** — Farm chicken with 3-lobed red comb, wattle, yellow beak & flapping wings
+9. **`Wolf`** — Angry Red-Eyed Dire Wolf with 5 spiky dorsal hackles, glowing blood-red eyes, snarling fangs & clawed paws
+10. **`Monkey`** — Dangerous Feral Mandrill Rage Ape ([monkey_render.png](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/public/assets/models/monkey_render.png)) with crimson/cobalt war-paint ridges, 4 giant saber fangs, glowing rage eyes & clawed fists
+
+### 🌙 Night Horror Hostile Mobs (4)
+11. **`ShadowStalker`** — Towering Wendigo with bleached stag skull, crimson void eyes, glowing heart core inside 8 exposed ribs, branching blood antlers & 8 bone-scythe claws
+12. **`BloodCrawler`** — Abyssal Spider with metallic chitin thorax, swollen blood-sac abdomen, 6 glowing pustules & dorsal spikes, 8 crimson eyes, venom mandibles & 8 jointed legs
+13. **`GrimWraith`** — Hooded Soul Reaper with tattered shadow cloak, cyan soul-fire chest vortex, screaming phantom skull & giant glowing Soul-Reaper Scythe
+14. **`FleshGhoul`** — Hulking Mutant Night Crawler with asymmetric gore shoulder, 6 erupting dorsal bone spikes, 3 glowing toxic lime eyes, split mandible jaws & bone-blade arms
+
+### 🎮 How to See / Spawn Any Mob in Game
+- All **14 Blender Mobs** automatically spawn in a showcase semicircle around you at world start.
+- Press **`B`** repeatedly during gameplay to cycle-spawn each of the 14 Blender Mobs right in front of your camera!
+- Or run **`/spawn <MobName>`** in the `/` console (e.g. `/spawn Dog`, `/spawn Monkey`, `/spawn Bird`, `/spawn Wolf`, `/spawn ShadowStalker`, `/spawn BloodCrawler`, `/spawn GrimWraith`, `/spawn FleshGhoul`).
 
 ---
 

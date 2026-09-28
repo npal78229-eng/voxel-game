@@ -76,9 +76,9 @@ let currentHit = null;
 // 7. PHASE U4 — RIGGED CHARACTER CONTROLLER
 const character = new CharacterController(scene, camera);
 
-// 8. PHASE U5 & U6 — WEB AUDIO SFX, MOB ROSTER & BREAK PARTICLES
+// 8. PHASE U5 & U6 — WEB AUDIO SFX, 14-MOB BLENDER ROSTER & BREAK PARTICLES
 const sfx = new SoundEffectsManager();
-const mobs = new PassiveMobManager(scene, world, 10);
+const mobs = new PassiveMobManager(scene, world, 14);
 const particles = new BlockBreakParticles(scene);
 
 // 9. PLAYER HEALTH (10 Hearts = 20 HP) & HUNGER (10 Pips = 20) (Phase U5.6)
@@ -354,11 +354,11 @@ window.addEventListener('keydown', (event) => {
   }
   if (event.code === 'KeyB') {
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-    const sx = controls.position.x + forward.x * 3.2;
-    const sz = controls.position.z + forward.z * 3.2;
-    mobs.spawnMob(sx, sz, 'Pig');
+    const sx = controls.position.x + forward.x * 3.4;
+    const sz = controls.position.z + forward.z * 3.4;
+    const spawnedSpec = mobs.spawnMob(sx, sz);
     sfx.playPlace();
-    showToast('Spawned Blender Pig! 🐷');
+    showToast(`Spawned ${spawnedSpec.label || spawnedSpec.type}!`);
   }
 });
 
