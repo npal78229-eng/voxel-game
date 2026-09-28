@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voxel Game — Complete Edition (Phases 0–6: Three.js + Vite)</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <!-- Top-Left Telemetry, Save/Load Controls & Greedy Meshing HUD -->
+    <div id="hud-overlay">
+      <div class="hud-card">
+        <span class="badge">Phases 0–6 Complete &bull; Full Voxel Engine</span>
+        <h1>Minecraft-Style Voxel Game</h1>
+        <p>16&sup3; Chunks &bull; Greedy Meshing &bull; IndexedDB Diff Save &bull; Web Audio &bull; Mobs</p>
+
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-label">FPS</span>
+            <span id="fps-value" class="stat-value">60</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Loaded Chunks</span>
+            <span id="chunks-value" class="stat-value">49</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Greedy Mesh</span>
+            <span id="greedy-value" class="stat-value">-84% tris</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Time [T]</span>
+            <span id="time-value" class="stat-value">Day (Noon)</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Camera [V]</span>
+            <span id="camera-mode-value" class="stat-value">1st-Person</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">AnimState</span>
+            <span id="anim-state-value" class="stat-value">Idle</span>
+          </div>
+          <div class="stat-item stat-wide">
+            <span class="stat-label">Save Status [P]</span>
+            <span id="save-status-value" class="stat-value">IndexedDB Ready</span>
+          </div>
+          <div class="stat-item stat-wide">
+            <span class="stat-label">Pos / Chunk</span>
+            <span id="pos-value" class="stat-value">8.0, 12.0, 11.0 [0, 0]</span>
+          </div>
+          <div class="stat-item stat-wide">
+            <span class="stat-label">Targeted Block</span>
+            <span id="target-value" class="stat-value">None</span>
+          </div>
+        </div>
+
+        <!-- Quick Action Toolbar (Phase 5 Save/New Game & Phase 6 Time/Inventory) -->
+        <div class="hud-actions">
+          <button id="btn-save-game" type="button" class="hud-btn">Save [P]</button>
+          <button id="btn-advance-time" type="button" class="hud-btn">Cycle Time [T]</button>
+          <button id="btn-open-inv" type="button" class="hud-btn">Inventory [E]</button>
+          <button id="btn-new-game" type="button" class="hud-btn danger">New Game [N]</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center Crosshair -->
+    <div id="crosshair" aria-hidden="true"></div>
+
+    <!-- Pointer Lock Instruction Banner -->
+    <div id="pointer-prompt" class="visible">
+      <div class="prompt-box">
+        <strong>Click 3D view to lock cursor &bull; [E] Inventory &amp; Crafting &bull; [V] 3rd-Person &bull; [P] Save &bull; [T] Day/Night</strong>
+        <span><b>WASD + Space/Shift</b>: Move &bull; <b>Left-Click</b>: Break (SFX + Particles) &bull; <b>Right-Click</b>: Place &bull; <b>1–9 / Scroll</b>: Hotbar</span>
+      </div>
+    </div>
+
+    <!-- Bottom Hotbar UI Overlay -->
+    <div id="hotbar-wrapper">
+      <div id="hotbar-active-label">Slot [1]: Grass Block (&times;24) &bull; Press [E] for Inventory &amp; Crafting</div>
+      <div id="hotbar-container"></div>
+    </div>
+
+    <!-- Full Inventory & 2x2 Crafting Modal (Toggled with 'E' Key) -->
+    <div id="inventory-modal" class="modal-backdrop hidden">
+      <div class="inventory-window">
+        <div class="inventory-header">
+          <div>
+            <h2>Inventory &amp; Crafting</h2>
+            <p>Left-Click: Pick Up / Swap / Stack &bull; Right-Click: Split Half / Place 1 &bull; Click a Recipe to Quick-Craft</p>
+          </div>
+          <button id="close-inventory-btn" type="button" class="close-btn">Resume Game [E]</button>
+        </div>
+
+        <div class="crafting-section">
+          <div class="crafting-station">
+            <span class="section-label">2&times;2 Crafting Grid</span>
+            <div class="crafting-io">
+              <div id="crafting-grid" class="grid-2x2"></div>
+              <div class="craft-arrow">&rarr;</div>
+              <div class="craft-output-wrapper">
+                <span class="mini-label">Output</span>
+                <div id="craft-output-slot" class="inv-slot output-slot"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="recipe-book">
+            <span class="section-label">Data-Driven Recipe Book (Click to Craft)</span>
+            <div id="recipe-book-list" class="recipe-grid"></div>
+          </div>
+        </div>
+
+        <div class="backpack-section">
+          <span class="section-label">Backpack Storage (27 Slots &bull; Max Stack 64)</span>
+          <div id="backpack-grid" class="grid-9x3"></div>
+        </div>
+
+        <div class="backpack-section">
+          <span class="section-label">Active Hotbar (Slots 1–9)</span>
+          <div id="modal-hotbar-grid" class="grid-9x1"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating Cursor Held Stack Preview -->
+    <div id="cursor-held-item" class="inv-slot cursor-floating hidden"></div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
