@@ -18,90 +18,157 @@ import {
   PassiveMobManager,
   BlockBreakParticles,
 } from './polish.js';
-import { TERRAIN_CONFIG } from './noise.js';
+import { TERRAIN_CONFIG, SEA_LEVEL } from './noise.js';
 
 // ============================================================================
-// Complete Voxel Game (Phases 0–6: Terrain, Inventory, Character, Save & Polish)
+// Voxel Realms v2.0 — Complete Upgrade Suite (Phases U0–U7)
 // ============================================================================
 
 // 1. SCENE
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);
-scene.fog = new THREE.FogExp2(0x87ceeb, 0.012);
+scene.background = new THREE.Color(0x7cc8f8);
+scene.fog = new THREE.FogExp2(0x7cc8f8, 0.011);
 
-// 2. CAMERA
+// 2. CAMERA (Phase U0.3: near plane = 0.05 to prevent camera terrain near-clipping)
 const camera = new THREE.PerspectiveCamera(
   75,
   window.innerWidth / window.innerHeight,
-  0.1,
-  500
+  0.05,
+  550
 );
 
-// 3. RENDERER
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// 3. RENDERER (Phase U0.3b: powerPreference 'high-performance', pixelRatio <= 2, SRGB)
+const renderer = new THREE.WebGLRenderer({
+  antialias: true,
+  powerPreference: 'high-performance',
+  preserveDrawingBuffer: true, // Enables F2 PNG Screenshot export
+});
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
-// 4. LIGHTING & PHASE 6.2 DAY/NIGHT CYCLE
+// 4. LIGHTING & PHASE U2.3 SKY / WEATHER SYSTEM
 const lights = setupLighting(scene);
 const dayNight = new DayNightCycle(scene, lights);
 
-// 5. CHUNKED PROCEDURAL VOXEL WORLD (Phases 3 & 6.4 Greedy Meshing)
+// 5. CHUNKED WORLD WITH WEB WORKER POOL (Phases U0.2, U2, U3)
 const world = new VoxelWorld(scene);
 
 function setDefaultSpawn() {
   const spawnX = 8;
   const spawnZ = 11;
-  const surfaceY = world.getSurfaceHeight(spawnX, spawnZ);
-  const lookTargetY = world.getSurfaceHeight(spawnX, spawnZ - 3);
-  camera.position.set(spawnX, surfaceY + 2.4, spawnZ);
-  camera.lookAt(spawnX, lookTargetY + 0.3, spawnZ - 3);
+  const surfaceY = Math.max(SEA_LEVEL + 1, world.getSurfaceHeight(spawnX, spawnZ));
+  camera.position.set(spawnX, surfaceY + 2.5, spawnZ);
+  camera.lookAt(spawnX, surfaceY + 1.5, spawnZ - 4);
 }
 
 setDefaultSpawn();
 world.updateChunks(camera.position, true);
 
-// 6. VOXEL RAYCASTER & WIREFRAME HIGHLIGHTER (Phase 2)
+// 6. DDA VOXEL RAYCASTER & WIREFRAME HIGHLIGHTER
 const highlighter = new VoxelTargetHighlighter(scene);
 const lookDirection = new THREE.Vector3();
 let currentHit = null;
 
-// 7. PHASE 4B — RIGGED CHARACTER CONTROLLER (GLTFLoader + AnimationMixer)
+// 7. PHASE U4 — RIGGED CHARACTER CONTROLLER
 const character = new CharacterController(scene, camera);
 
-// 8. PHASE 6 — WEB AUDIO SFX, PASSIVE MOBS & BREAK PARTICLES
+// 8. PHASE U5 & U6 — WEB AUDIO SFX, MOB ROSTER & BREAK PARTICLES
 const sfx = new SoundEffectsManager();
-const mobs = new PassiveMobManager(scene, world, 6);
+const mobs = new PassiveMobManager(scene, world, 10);
 const particles = new BlockBreakParticles(scene);
 
-// 9. FIRST/THIRD-PERSON CONTROLS
-const pointerPromptEl = document.getElementById('pointer-prompt');
+// 9. PLAYER HEALTH (10 Hearts = 20 HP) & HUNGER (10 Pips = 20) (Phase U5.6)
+const playerStats = {
+  hp: 20,
+  maxHp: 20,
+  hunger: 20,
+  maxHunger: 20,
+};
+
+const heartsBarEl = document.getElementById('hearts-bar');
+const hungerBarEl = document.getElementById('hunger-bar');
+const hurtFlashEl = document.getElementById('hurt-flash-overlay');
+const underwaterEl = document.getElementById('underwater-overlay');
+const toastEl = document.getElementById('toast-banner');
+
+let toastTimeout = null;
+function showToast(message) {
+  if (!toastEl) return;
+  toastEl.textContent = message;
+  toastEl.classList.remove('hidden');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => {
+    toastEl.classList.add('hidden');
+  }, 2400);
+}
+
+function renderSurvivalBars() {
+  if (heartsBarEl) {
+    heartsBarEl.innerHTML = '';
+    for (let i = 0; i < 10; i++) {
+      const pip = document.createElement('div');
+      pip.className = `heart-pip ${playerStats.hp >= (i + 1) * 2 ? '' : 'empty'}`;
+      heartsBarEl.appendChild(pip);
+    }
+  }
+  if (hungerBarEl) {
+    hungerBarEl.innerHTML = '';
+    for (let i = 0; i < 10; i++) {
+      const pip = document.createElement('div');
+      pip.className = `hunger-pip ${playerStats.hunger >= (i + 1) * 2 ? '' : 'empty'}`;
+      hungerBarEl.appendChild(pip);
+    }
+  }
+}
+renderSurvivalBars();
+
+function applyPlayerDamage(amount, source = 'Hazard') {
+  playerStats.hp = Math.max(0, playerStats.hp - amount);
+  sfx.playPlayerHurt();
+  renderSurvivalBars();
+
+  if (hurtFlashEl) {
+    hurtFlashEl.classList.remove('hidden');
+    setTimeout(() => hurtFlashEl.classList.add('hidden'), 220);
+  }
+
+  if (playerStats.hp <= 0) {
+    showToast(`Defeated by ${source}! Respawning at surface...`);
+    playerStats.hp = playerStats.maxHp;
+    playerStats.hunger = playerStats.maxHunger;
+    setDefaultSpawn();
+    controls.syncFromCamera();
+    renderSurvivalBars();
+  }
+}
+
+// 10. PLAYER AABB CONTROLS (Phase U0.3)
 const cameraModeEl = document.getElementById('camera-mode-value');
+const pauseModalEl = document.getElementById('pause-menu-modal');
 
 const controls = new FirstPersonController(
   camera,
   renderer.domElement,
-  (isLocked) => {
-    if (pointerPromptEl) {
-      pointerPromptEl.classList.toggle(
-        'visible',
-        !isLocked && !inventory.isOpen
-      );
-    }
-  },
-  (isThirdPerson) => {
+  world,
+  () => {},
+  (isThirdPerson, modeLabel) => {
     character.setThirdPersonMode(isThirdPerson);
     if (cameraModeEl) {
-      cameraModeEl.textContent = isThirdPerson ? '3rd-Person' : '1st-Person';
+      cameraModeEl.textContent = modeLabel;
     }
+    showToast(`Camera: ${modeLabel}`);
+  },
+  (fallDmg) => {
+    applyPlayerDamage(fallDmg, 'Fall Damage');
   }
 );
 controls.syncFromCamera();
 
-// 10. PHASE 4A — STACK INVENTORY & 2x2 CRAFTING SYSTEM
+// 11. STACK INVENTORY & CRAFTING
 let ui = null;
 const inventory = new InventorySystem(() => {
   if (ui) {
@@ -113,111 +180,301 @@ const inventory = new InventorySystem(() => {
 
 ui = new HotbarAndInventoryUI(inventory, renderer.domElement, (isModalOpen) => {
   controls.paused = isModalOpen;
-  if (pointerPromptEl) {
-    pointerPromptEl.classList.toggle(
-      'visible',
-      !controls.isLocked && !isModalOpen
-    );
-  }
 });
 
 const initialStack = ui.getSelectedStack();
 character.setHeldBlockType(initialStack ? initialStack.itemType : null);
 
-// 11. PHASE 5 — INDEXEDDB PERSISTENCE (STARTUP RESTORE, AUTOSAVE, MANUAL SAVE & NEW GAME)
+// 12. SAVE / LOAD (Phase U1.5 Desktop IPC + Phase 5 IndexedDB Fallback)
 const saveStatusEl = document.getElementById('save-status-value');
 const gameContext = { world, controls, inventory, ui, dayNight };
 
 async function performSave(triggerLabel = 'Saved') {
   const res = await saveGame(gameContext);
+  if (window.voxelDesktopAPI && window.voxelDesktopAPI.saveWorld) {
+    await window.voxelDesktopAPI.saveWorld({
+      worldId: 'default',
+      meta: {
+        id: 'default',
+        name: 'Primary World',
+        seed: world.seed,
+        lastPlayed: Date.now(),
+        saveVersion: 2,
+      },
+      worldData: res,
+    });
+  }
   if (saveStatusEl && res.ok) {
-    saveStatusEl.textContent = `${triggerLabel} (${res.diffCount} block diffs)`;
+    saveStatusEl.textContent = `${triggerLabel} (${res.diffCount} diffs)`;
+  }
+  if (triggerLabel === 'Manual Save') {
+    showToast(`World Saved (${res.diffCount} modified blocks)`);
   }
 }
 
 async function performNewGame() {
-  const confirmed = window.confirm(
-    'Start a New Game? This will clear your saved world modifications and reset your inventory.'
+  const seedStr = window.prompt(
+    'Enter a numerical Seed for your New World (or leave default):',
+    String(Math.floor(100000 + Math.random() * 899999))
   );
-  if (!confirmed) return;
+  if (seedStr === null) return;
 
+  const newSeed = Number(seedStr) || TERRAIN_CONFIG.seed;
   await clearSavedGame();
   world.modifiedBlocks.clear();
-  world.setSeed(TERRAIN_CONFIG.seed);
+  world.setSeed(newSeed);
   setDefaultSpawn();
   controls.syncFromCamera();
   world.reloadAllChunks(controls.playerPosition);
   inventory.populateStarterKit();
-  dayNight.timeOfDay = 0.23;
+  playerStats.hp = 20;
+  playerStats.hunger = 20;
+  renderSurvivalBars();
+  showToast(`Generated New World (Seed: ${newSeed})`);
+}
 
-  if (saveStatusEl) {
-    saveStatusEl.textContent = 'New World Generated (0 diffs)';
+loadGame().then((savedData) => {
+  if (savedData) {
+    deserializeGameState(savedData, gameContext);
+    controls.ensureNotInsideBlocks();
+  }
+});
+
+setInterval(() => performSave('AutoSaved'), 25000);
+window.addEventListener('beforeunload', () => saveGame(gameContext));
+
+// 13. LOADING SCREEN COMPLETION & ELECTRON SPLASH IPC (Phase U1.3)
+const loadingScreenEl = document.getElementById('loading-screen');
+const loadingBarEl = document.getElementById('loading-bar-fill');
+const loadingStageEl = document.getElementById('loading-stage-text');
+let isLoadingComplete = false;
+
+function updateLoadingProgress() {
+  if (isLoadingComplete) return;
+  const stats = world.getStats();
+  const pct = Math.min(100, Math.round((stats.loadedChunks / 9) * 100));
+  if (loadingBarEl) loadingBarEl.style.width = `${pct}%`;
+  if (loadingStageEl) {
+    loadingStageEl.textContent = `Meshing spawn chunks (${stats.loadedChunks}/9 ready)...`;
+  }
+  if (stats.loadedChunks >= 4) {
+    isLoadingComplete = true;
+    controls.ensureNotInsideBlocks();
+    if (loadingScreenEl) {
+      loadingScreenEl.style.opacity = '0';
+      setTimeout(() => loadingScreenEl.classList.add('hidden'), 350);
+    }
+    if (window.voxelDesktopAPI && window.voxelDesktopAPI.notifyReady) {
+      window.voxelDesktopAPI.notifyReady();
+    }
   }
 }
 
-// Check IndexedDB for existing save on startup (Task 5C)
-loadGame().then((savedData) => {
-  if (savedData) {
-    const restored = deserializeGameState(savedData, gameContext);
-    if (restored && saveStatusEl) {
-      const count = Array.isArray(savedData.modifiedBlocks)
-        ? savedData.modifiedBlocks.length
-        : 0;
-      saveStatusEl.textContent = `Restored (${count} block diffs)`;
+// 14. F3 DEBUG OVERLAY, F2 SCREENSHOT, ESC PAUSE MENU & '/' COMMAND CONSOLE
+const debugOverlayEl = document.getElementById('debug-overlay');
+const commandConsoleEl = document.getElementById('command-console');
+const commandInputEl = document.getElementById('command-input');
+
+function togglePauseMenu(forceState) {
+  if (!pauseModalEl) return;
+  const isOpen = !pauseModalEl.classList.contains('hidden');
+  const next = typeof forceState === 'boolean' ? forceState : !isOpen;
+  pauseModalEl.classList.toggle('hidden', !next);
+  controls.paused = next;
+  if (next && document.pointerLockElement) {
+    document.exitPointerLock();
+  }
+}
+
+window.addEventListener('keydown', (event) => {
+  // Handle '/' Command Console input
+  if (commandConsoleEl && !commandConsoleEl.classList.contains('hidden')) {
+    if (event.code === 'Escape') {
+      commandConsoleEl.classList.add('hidden');
+      controls.paused = false;
+      renderer.domElement.requestPointerLock();
+    } else if (event.code === 'Enter') {
+      const rawCmd = (commandInputEl.value || '').trim();
+      executeConsoleCommand(rawCmd);
+      commandInputEl.value = '';
+      commandConsoleEl.classList.add('hidden');
+      controls.paused = false;
+      renderer.domElement.requestPointerLock();
     }
+    return;
+  }
+
+  // F3 toggles Developer Debug Overlay (Phase U0.1 & U6.2)
+  if (event.code === 'F3') {
+    event.preventDefault();
+    debugOverlayEl?.classList.toggle('hidden');
+    return;
+  }
+
+  // F2 saves Screenshot (Phase U6.2)
+  if (event.code === 'F2') {
+    event.preventDefault();
+    const dataUrl = renderer.domElement.toDataURL('image/png');
+    if (window.voxelDesktopAPI && window.voxelDesktopAPI.saveScreenshot) {
+      window.voxelDesktopAPI.saveScreenshot(dataUrl).then(() => {
+        showToast('Screenshot saved to Pictures/VoxelRealms');
+      });
+    } else {
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `voxel-realms-${Date.now()}.png`;
+      a.click();
+      showToast('Screenshot downloaded!');
+    }
+    return;
+  }
+
+  // '/' opens Command Console (Phase U6.6)
+  if (event.key === '/' && !inventory.isOpen) {
+    event.preventDefault();
+    commandConsoleEl?.classList.remove('hidden');
+    controls.paused = true;
+    if (document.pointerLockElement) document.exitPointerLock();
+    setTimeout(() => commandInputEl?.focus(), 20);
+    return;
+  }
+
+  // 'M' or Pause Menu button opens Game Menu
+  if (event.code === 'KeyM' && !inventory.isOpen) {
+    togglePauseMenu();
+    return;
+  }
+
+  if (inventory.isOpen || controls.paused) return;
+
+  if (event.code === 'KeyP') performSave('Manual Save');
+  if (event.code === 'KeyT') {
+    dayNight.advanceTime(0.12);
+    showToast(`Time: ${dayNight.getLabel()}`);
   }
 });
 
-// Periodic Autosave every 25 seconds + on page unload (Task 5B)
-setInterval(() => {
-  performSave('AutoSaved');
-}, 25000);
+function executeConsoleCommand(cmdStr) {
+  if (!cmdStr) return;
+  const parts = cmdStr.replace(/^\//, '').split(/\s+/);
+  const cmd = (parts[0] || '').toLowerCase();
 
-window.addEventListener('beforeunload', () => {
-  saveGame(gameContext);
+  if (cmd === 'time') {
+    const sub = (parts[2] || parts[1] || 'day').toLowerCase();
+    dayNight.timeOfDay =
+      sub === 'night' ? 0.75 : sub === 'sunset' ? 0.5 : 0.25;
+    showToast(`Time set to ${sub}`);
+  } else if (cmd === 'weather') {
+    const w = (parts[1] || 'clear').toLowerCase();
+    dayNight.setWeather(w);
+    showToast(`Weather set to ${dayNight.weather}`);
+  } else if (cmd === 'gamemode') {
+    const mode = (parts[1] || '').toLowerCase();
+    controls.isFlyMode = mode === 'fly' || mode === 'creative' || !controls.isFlyMode;
+    showToast(`Physics Mode: ${controls.isFlyMode ? 'Fly Mode' : 'Survival AABB'}`);
+  } else if (cmd === 'give') {
+    const item = parts[1] || 'gem_ore';
+    const count = Number(parts[2]) || 16;
+    inventory.addItem(item, count);
+    showToast(`Added ${count}x ${item} to inventory`);
+  } else if (cmd === 'tp' && parts.length >= 4) {
+    controls.playerPosition.set(
+      Number(parts[1]) || 0,
+      Number(parts[2]) || 28,
+      Number(parts[3]) || 0
+    );
+    world.reloadAllChunks(controls.playerPosition);
+    showToast(`Teleported to (${parts[1]}, ${parts[2]}, ${parts[3]})`);
+  } else if (cmd === 'spawn') {
+    const mobName = parts[1] || 'Shambler';
+    const spawned = mobs.spawnMobAt(
+      mobName,
+      controls.playerPosition.x + 3,
+      controls.playerPosition.z - 3
+    );
+    showToast(`Spawned ${spawned}`);
+  } else if (cmd === 'heal') {
+    playerStats.hp = 20;
+    playerStats.hunger = 20;
+    renderSurvivalBars();
+    showToast('Restored full Health & Stamina');
+  }
+}
+
+// Wire Pause Menu Buttons
+document.getElementById('menu-btn-resume')?.addEventListener('click', () => {
+  togglePauseMenu(false);
+  renderer.domElement.requestPointerLock();
 });
-
-// Wire HUD Toolbar Buttons & Hotkeys ('P' = Save, 'T' = Cycle Time, 'N' = New Game)
-document.getElementById('btn-save-game')?.addEventListener('click', (e) => {
-  e.stopPropagation();
+document.getElementById('menu-btn-save')?.addEventListener('click', () => {
   performSave('Manual Save');
+  togglePauseMenu(false);
 });
-document.getElementById('btn-advance-time')?.addEventListener('click', (e) => {
-  e.stopPropagation();
-  dayNight.advanceTime(0.12);
+document.getElementById('menu-btn-time')?.addEventListener('click', () => {
+  dayNight.advanceTime(0.15);
+  showToast(`Time: ${dayNight.getLabel()}`);
 });
-document.getElementById('btn-open-inv')?.addEventListener('click', (e) => {
-  e.stopPropagation();
-  ui.toggleInventoryModal();
+document.getElementById('menu-btn-weather')?.addEventListener('click', () => {
+  const order = ['clear', 'rain', 'snow'];
+  const next = order[(order.indexOf(dayNight.weather) + 1) % order.length];
+  dayNight.setWeather(next);
+  showToast(`Weather: ${next}`);
 });
-document.getElementById('btn-new-game')?.addEventListener('click', (e) => {
-  e.stopPropagation();
+document.getElementById('menu-btn-fly')?.addEventListener('click', () => {
+  controls.isFlyMode = !controls.isFlyMode;
+  showToast(`Mode: ${controls.isFlyMode ? 'Fly Mode' : 'Survival Walk'}`);
+});
+let qualityIndex = 2;
+const qualityNames = ['Low', 'Medium', 'High', 'Ultra'];
+document.getElementById('menu-btn-quality')?.addEventListener('click', (e) => {
+  qualityIndex = (qualityIndex + 1) % qualityNames.length;
+  const q = qualityNames[qualityIndex];
+  e.target.textContent = `Graphics Quality: ${q}`;
+  renderer.shadowMap.enabled = qualityIndex >= 1;
+  renderer.setPixelRatio(
+    qualityIndex === 0 ? 1 : Math.min(window.devicePixelRatio, 2)
+  );
+  showToast(`Quality Preset: ${q}`);
+});
+document.getElementById('menu-btn-new')?.addEventListener('click', () => {
+  togglePauseMenu(false);
   performNewGame();
 });
 
-window.addEventListener('keydown', (event) => {
-  if (inventory.isOpen) return;
-  if (event.code === 'KeyP') {
-    performSave('Manual Save');
-  } else if (event.code === 'KeyT') {
-    dayNight.advanceTime(0.12);
-  } else if (event.code === 'KeyN') {
-    performNewGame();
-  }
-});
-
-// 12. BREAK (SFX + Particles + Collect) & PLACE (SFX + Consume from Hotbar)
-window.addEventListener('contextmenu', (event) => {
-  event.preventDefault();
-});
+// 15. COMBAT & BLOCK INTERACTION (Left-Click Attack/Break, Right-Click Place)
+window.addEventListener('contextmenu', (event) => event.preventDefault());
 
 renderer.domElement.addEventListener('mousedown', (event) => {
-  if (!controls.isLocked || inventory.isOpen) return;
+  if (!controls.isLocked || inventory.isOpen || controls.paused) return;
 
   character.triggerSwing();
-  if (!currentHit) return;
+  camera.getWorldDirection(lookDirection);
 
   if (event.button === 0) {
+    // 1. First test combat ray against nearby mobs (Phase U5.6)
+    const isCrit = !controls.onGround && controls.velocityY < -1.5;
+    const hitMob = mobs.tryAttackMob(
+      controls.playerPosition,
+      lookDirection,
+      isCrit ? 6 : 4
+    );
+    if (hitMob) {
+      sfx.playAttackHit();
+      if (hitMob.killed) {
+        inventory.addItem(hitMob.drop, 2);
+        particles.spawnBurst(
+          hitMob.position.x,
+          hitMob.position.y,
+          hitMob.position.z,
+          hitMob.drop
+        );
+        showToast(`Defeated ${hitMob.type}! (+2 ${hitMob.drop})`);
+      }
+      return;
+    }
+
+    // 2. Otherwise mine targeted block
+    if (!currentHit) return;
     const brokenBlockType = currentHit.blockType;
     const { x, y, z } = currentHit;
     const removed = world.removeBlock(x, y, z);
@@ -227,6 +484,7 @@ renderer.domElement.addEventListener('mousedown', (event) => {
       particles.spawnBurst(x, y, z, brokenBlockType);
     }
   } else if (event.button === 2) {
+    if (!currentHit) return;
     const { x: adjX, y: adjY, z: adjZ } = currentHit.adjacent;
     if (!world.wouldOverlapPlayer(adjX, adjY, adjZ, controls.playerPosition)) {
       const activeStack = ui.getSelectedStack();
@@ -241,20 +499,7 @@ renderer.domElement.addEventListener('mousedown', (event) => {
   }
 });
 
-window.addEventListener('keydown', () => {
-  const stack = ui.getSelectedStack();
-  character.setHeldBlockType(stack ? stack.itemType : null);
-});
-window.addEventListener(
-  'wheel',
-  () => {
-    const stack = ui.getSelectedStack();
-    character.setHeldBlockType(stack ? stack.itemType : null);
-  },
-  { passive: true }
-);
-
-// 13. WINDOW RESIZE HANDLER
+// 16. WINDOW RESIZE HANDLER
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -262,12 +507,14 @@ window.addEventListener('resize', () => {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 });
 
-// 14. TELEMETRY & 60 FPS RENDER LOOP
+// 17. MAIN 60 FPS RENDER LOOP & TELEMETRY
 const fpsEl = document.getElementById('fps-value');
+const drawCallsEl = document.getElementById('drawcalls-value');
 const chunksEl = document.getElementById('chunks-value');
 const greedyEl = document.getElementById('greedy-value');
 const timeEl = document.getElementById('time-value');
-const animStateEl = document.getElementById('anim-state-value');
+const biomeEl = document.getElementById('biome-value');
+const biomePillEl = document.getElementById('biome-pill');
 const posEl = document.getElementById('pos-value');
 const targetEl = document.getElementById('target-value');
 
@@ -280,12 +527,24 @@ function animate() {
 
   const deltaTime = clock.getDelta();
 
-  // 1. Update player controls & footstep SFX
+  updateLoadingProgress();
+
+  // 1. Update player physics & controls
   controls.update(deltaTime);
   const isMoving = controls.isMovingHorizontally();
-  sfx.updateFootsteps(deltaTime, isMoving);
+  sfx.updateFootsteps(deltaTime, isMoving && controls.onGround);
 
-  // 2. Update rigged character & AnimationMixer ('Idle' <-> 'Walk' crossfade)
+  // Check underwater camera state (Phase U2.5)
+  const headBlock = world.getBlock(
+    controls.playerPosition.x,
+    controls.playerPosition.y,
+    controls.playerPosition.z
+  );
+  if (underwaterEl) {
+    underwaterEl.classList.toggle('hidden', headBlock !== 'water');
+  }
+
+  // 2. Update rigged character & AnimationMixer
   character.update(
     deltaTime,
     controls.playerPosition,
@@ -293,59 +552,56 @@ function animate() {
     isMoving
   );
 
-  // 3. Update Day/Night cycle, passive wandering mobs & break particles
+  // 3. Update Sky, Mobs & Particles
   dayNight.update(deltaTime, controls.playerPosition);
-  mobs.update(deltaTime, controls.playerPosition);
+  mobs.update(
+    deltaTime,
+    controls.playerPosition,
+    dayNight.isNight(),
+    (dmg, mobType) => applyPlayerDamage(dmg, mobType)
+  );
   particles.update(deltaTime);
 
-  // 4. Stream procedural 16x16x16 chunks
+  // 4. Stream chunks via Web Worker Pool
   world.updateChunks(controls.playerPosition, false);
 
-  // 5. Perform DDA voxel raycast
+  // 5. DDA Raycast
   camera.getWorldDirection(lookDirection);
   currentHit = raycastVoxelDDA(world, controls.playerPosition, lookDirection);
   highlighter.update(currentHit);
 
-  // 6. Render scene
+  // 6. Render Scene
   renderer.render(scene, camera);
 
-  // 7. Update HUD telemetry
+  // 7. Update Telemetry
   frameCount++;
   fpsAccumulator += deltaTime;
-  if (fpsAccumulator >= 0.15) {
+  if (fpsAccumulator >= 0.2) {
     const currentFps = Math.round(frameCount / fpsAccumulator);
+    const frameMs = ((fpsAccumulator / frameCount) * 1000).toFixed(1);
     const stats = world.getStats();
-    const { chunkX, chunkZ } = world.worldToChunkCoords(
-      controls.playerPosition.x,
-      controls.playerPosition.z
-    );
+    const { x, y, z } = controls.playerPosition;
+    const biomeName = world.getBiomeNameAt(x, z);
 
-    if (fpsEl) fpsEl.textContent = String(currentFps);
+    if (biomePillEl) biomePillEl.textContent = `Biome: ${biomeName}`;
+    if (fpsEl) fpsEl.textContent = `${currentFps} (${frameMs}ms)`;
+    if (drawCallsEl) {
+      drawCallsEl.textContent = String(renderer.info.render.calls);
+    }
     if (chunksEl) {
-      chunksEl.textContent =
-        stats.queuedChunks > 0
-          ? `${stats.loadedChunks} (+${stats.queuedChunks}q)`
-          : String(stats.loadedChunks);
+      chunksEl.textContent = `${stats.loadedChunks} (${stats.queuedChunks}q / ${stats.workerCount}w)`;
     }
-    if (greedyEl) {
-      greedyEl.textContent = `-${stats.reductionPct}% tris`;
-    }
-    if (timeEl) {
-      timeEl.textContent = dayNight.getLabel();
-    }
-    if (animStateEl) {
-      animStateEl.textContent = character.activeActionName;
-    }
+    if (greedyEl) greedyEl.textContent = `-${stats.reductionPct}% tris`;
+    if (timeEl) timeEl.textContent = dayNight.getLabel();
+    if (biomeEl) biomeEl.textContent = biomeName;
     if (posEl) {
-      const { x, y, z } = controls.playerPosition;
-      posEl.textContent = `${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)} [Chunk ${chunkX}, ${chunkZ}]`;
+      const mode = controls.isFlyMode ? 'Fly' : 'AABB Walk';
+      posEl.textContent = `${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)} [${mode}]`;
     }
     if (targetEl) {
-      if (currentHit) {
-        targetEl.textContent = `(${currentHit.x}, ${currentHit.y}, ${currentHit.z}) [${currentHit.blockType}] (${currentHit.faceName})`;
-      } else {
-        targetEl.textContent = 'None (out of 6m reach)';
-      }
+      targetEl.textContent = currentHit
+        ? `(${currentHit.x}, ${currentHit.y}, ${currentHit.z}) [${currentHit.blockType}]`
+        : 'None';
     }
     frameCount = 0;
     fpsAccumulator = 0;

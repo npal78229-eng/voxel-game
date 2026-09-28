@@ -1,23 +1,44 @@
 import * as THREE from 'three';
 
 // ============================================================================
-// Phase 1 & Phase 4 — First/Third-Person Controls (Pointer Lock, WASD, Pause, V-Toggle)
+// Phase U0.3 — Player AABB Physics (0.6x1.8 Collider, Axis-Separated X/Y/Z
+//              Collision, Gravity, Jumping, Sprint FOV & Double-Space Fly Toggle)
 // ============================================================================
 
 export class FirstPersonController {
-  constructor(camera, domElement, onPointerLockChange, onCameraModeChange) {
+  constructor(
+    camera,
+    domElement,
+    world,
+    onPointerLockChange,
+    onCameraModeChange,
+    onFallDamage
+  ) {
     this.camera = camera;
     this.domElement = domElement;
+    this.world = world;
     this.onPointerLockChange = onPointerLockChange;
     this.onCameraModeChange = onCameraModeChange;
+    this.onFallDamage = onFallDamage;
 
-    // Canonical player eye position in world coordinates
+    // Player eye position in world coordinates (feet are at playerPosition.y - 1.62)
     this.playerPosition = this.camera.position.clone();
+    this.eyeHeight = 1.62;
+    this.halfWidth = 0.3; // 0.6 wide collider
+    this.colliderHeight = 1.8; // 1.8 tall collider
 
-    // Movement & look parameters
-    this.moveSpeed = 6.5;
-    this.verticalSpeed = 5.5;
+    this.moveSpeed = 5.6;
+    this.sprintMultiplier = 1.48;
+    this.flySpeed = 11.5;
+    this.jumpSpeed = 8.3;
+    this.gravity = 24.0;
     this.mouseSensitivity = 0.0022;
+
+    this.velocityY = 0;
+    this.onGround = false;
+    this.isFlyMode = false; // Double-tap Space or press 'F' to toggle Fly Mode
+    this.lastSpaceDownTime = 0;
+    this.highestAirY = this.playerPosition.y;
 
     this.euler = new THREE.Euler(0, 0, 0, 'YXZ');
     this.euler.setFromQuaternion(this.camera.quaternion);
@@ -30,26 +51,41 @@ export class FirstPersonController {
       Space: false,
       ShiftLeft: false,
       ShiftRight: false,
+      ControlLeft: false,
     };
 
     this.isLocked = false;
-    this.paused = false; // Set true when Inventory UI ('E') is open
-    this.isThirdPerson = false; // Toggled with 'V' key (Part 4B)
+    this.paused = false;
+    this.isThirdPerson = false;
+    this.cameraModeIndex = 0; // 0: 1st-Person, 1: 3rd-Person Back, 2: 3rd-Person Front
 
     this._bindEvents();
   }
 
-  /**
-   * Syncs `this.playerPosition` and `this.euler` from `this.camera` after initial spawn setup.
-   */
   syncFromCamera() {
     this.playerPosition.copy(this.camera.position);
     this.euler.setFromQuaternion(this.camera.quaternion);
+    this.ensureNotInsideBlocks();
+    this.highestAirY = this.playerPosition.y;
   }
 
   /**
-   * Returns true when WASD horizontal movement is actively held (used to trigger 'Walk' animation).
+   * Phase U0.3 — Spawn & anti-clipping safety check: if the player's collider overlaps
+   * solid terrain, push the player up to stand cleanly on top of the surface.
    */
+  ensureNotInsideBlocks() {
+    if (!this.world) return;
+    const minSurfaceY =
+      this.world.getSurfaceHeight(this.playerPosition.x, this.playerPosition.z) +
+      0.5 +
+      this.eyeHeight;
+    if (this.playerPosition.y < minSurfaceY) {
+      this.playerPosition.y = minSurfaceY + 0.05;
+      this.velocityY = 0;
+      this.onGround = true;
+    }
+  }
+
   isMovingHorizontally() {
     if (this.paused) return false;
     return Boolean(
@@ -57,11 +93,25 @@ export class FirstPersonController {
     );
   }
 
+  isSprinting() {
+    return (
+      this.isMovingHorizontally() &&
+      Boolean(this.keys.ControlLeft || (!this.isFlyMode && this.keys.ShiftLeft))
+    );
+  }
+
   toggleCameraMode() {
-    this.isThirdPerson = !this.isThirdPerson;
+    this.cameraModeIndex = (this.cameraModeIndex + 1) % 3;
+    this.isThirdPerson = this.cameraModeIndex !== 0;
     this._applyCameraTransform();
     if (typeof this.onCameraModeChange === 'function') {
-      this.onCameraModeChange(this.isThirdPerson);
+      const label =
+        this.cameraModeIndex === 0
+          ? '1st-Person'
+          : this.cameraModeIndex === 1
+          ? '3rd-Person Back'
+          : '3rd-Person Front';
+      this.onCameraModeChange(this.isThirdPerson, label);
     }
   }
 
@@ -98,10 +148,29 @@ export class FirstPersonController {
     });
 
     window.addEventListener('keydown', (event) => {
-      if (event.code === 'KeyV' && !this.paused) {
+      if (this.paused) return;
+
+      if (event.code === 'KeyV') {
         this.toggleCameraMode();
         return;
       }
+
+      if (event.code === 'KeyF') {
+        this.isFlyMode = !this.isFlyMode;
+        this.velocityY = 0;
+        return;
+      }
+
+      if (event.code === 'Space' && !event.repeat) {
+        const now = performance.now();
+        if (now - this.lastSpaceDownTime < 300) {
+          // Double-tap Space toggles Fly Mode (Phase U0.3)
+          this.isFlyMode = !this.isFlyMode;
+          this.velocityY = 0;
+        }
+        this.lastSpaceDownTime = now;
+      }
+
       if (event.code in this.keys) {
         this.keys[event.code] = true;
       }
@@ -114,21 +183,76 @@ export class FirstPersonController {
     });
   }
 
+  /**
+   * Checks if the player's 0.6 x 1.8 AABB at eye position (px, py, pz) intersects any solid voxel.
+   */
+  _collidesAt(px, py, pz) {
+    if (!this.world) return false;
+
+    const feetY = py - this.eyeHeight;
+    const minX = Math.floor(px - this.halfWidth + 0.5);
+    const maxX = Math.floor(px + this.halfWidth - 0.001 + 0.5);
+    const minY = Math.floor(feetY + 0.5);
+    const maxY = Math.floor(feetY + this.colliderHeight - 0.02 + 0.5);
+    const minZ = Math.floor(pz - this.halfWidth + 0.5);
+    const maxZ = Math.floor(pz + this.halfWidth - 0.001 + 0.5);
+
+    for (let bx = minX; bx <= maxX; bx++) {
+      for (let by = minY; by <= maxY; by++) {
+        for (let bz = minZ; bz <= maxZ; bz++) {
+          if (this.world.isSolidAt(bx, by, bz)) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   _applyCameraTransform() {
     this.camera.quaternion.setFromEuler(this.euler);
 
-    if (!this.isThirdPerson) {
-      // First-Person View: Camera sits directly at player's eye position
+    if (this.cameraModeIndex === 0) {
       this.camera.position.copy(this.playerPosition);
+    } else if (this.cameraModeIndex === 1) {
+      // Third-Person Back with terrain collision clamp so camera never clips inside hills
+      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(
+        this.camera.quaternion
+      );
+      let dist = 3.6;
+      for (let d = 0.8; d <= 3.6; d += 0.4) {
+        const testPos = this.playerPosition
+          .clone()
+          .addScaledVector(forward, -d);
+        if (
+          this.world &&
+          this.world.isSolidAt(
+            Math.round(testPos.x),
+            Math.round(testPos.y),
+            Math.round(testPos.z)
+          )
+        ) {
+          dist = Math.max(0.6, d - 0.45);
+          break;
+        }
+      }
+      this.camera.position
+        .copy(this.playerPosition)
+        .addScaledVector(forward, -dist);
+      this.camera.position.y += 0.35;
     } else {
-      // Third-Person Over-the-Shoulder View: Offset camera backward along look direction
+      // Third-Person Front
       const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(
         this.camera.quaternion
       );
       this.camera.position
         .copy(this.playerPosition)
-        .addScaledVector(forward, -3.8);
-      this.camera.position.y += 0.55;
+        .addScaledVector(forward, 2.8);
+      this.camera.lookAt(
+        this.playerPosition.x,
+        this.playerPosition.y - 0.3,
+        this.playerPosition.z
+      );
     }
   }
 
@@ -138,13 +262,12 @@ export class FirstPersonController {
       return;
     }
 
-    const dt = Math.min(deltaTime, 0.1);
+    const dt = Math.min(deltaTime, 0.08);
     const yaw = this.euler.y;
     const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
     const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
 
     const moveDirection = new THREE.Vector3();
-
     if (this.keys.KeyW) moveDirection.add(forward);
     if (this.keys.KeyS) moveDirection.sub(forward);
     if (this.keys.KeyD) moveDirection.add(right);
@@ -152,14 +275,75 @@ export class FirstPersonController {
 
     if (moveDirection.lengthSq() > 0) {
       moveDirection.normalize();
-      this.playerPosition.addScaledVector(moveDirection, this.moveSpeed * dt);
     }
 
-    if (this.keys.Space) {
-      this.playerPosition.y += this.verticalSpeed * dt;
+    // Dynamic FOV sprint widening (Phase U2.7)
+    const targetFov = this.isSprinting() ? 83 : 75;
+    if (Math.abs(this.camera.fov - targetFov) > 0.1) {
+      this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 10);
+      this.camera.updateProjectionMatrix();
     }
-    if (this.keys.ShiftLeft || this.keys.ShiftRight) {
-      this.playerPosition.y -= this.verticalSpeed * dt;
+
+    if (this.isFlyMode) {
+      const speed = this.flySpeed * dt;
+      this.playerPosition.addScaledVector(moveDirection, speed);
+      if (this.keys.Space) this.playerPosition.y += speed * 0.85;
+      if (this.keys.ShiftLeft || this.keys.ShiftRight) {
+        this.playerPosition.y -= speed * 0.85;
+      }
+      this.highestAirY = this.playerPosition.y;
+      this._applyCameraTransform();
+      return;
+    }
+
+    // Phase U0.3 — Axis-Separated AABB Collision Resolution (X -> Y -> Z)
+    const speed =
+      this.moveSpeed * (this.isSprinting() ? this.sprintMultiplier : 1.0);
+    const dx = moveDirection.x * speed * dt;
+    const dz = moveDirection.z * speed * dt;
+
+    // 1. Resolve X Axis
+    if (!this._collidesAt(this.playerPosition.x + dx, this.playerPosition.y, this.playerPosition.z)) {
+      this.playerPosition.x += dx;
+    }
+
+    // 2. Resolve Z Axis
+    if (!this._collidesAt(this.playerPosition.x, this.playerPosition.y, this.playerPosition.z + dz)) {
+      this.playerPosition.z += dz;
+    }
+
+    // 3. Jump & Gravity on Y Axis
+    if (this.keys.Space && this.onGround) {
+      this.velocityY = this.jumpSpeed;
+      this.onGround = false;
+    }
+
+    this.velocityY -= this.gravity * dt;
+    this.velocityY = Math.max(-32, this.velocityY);
+    const dy = this.velocityY * dt;
+
+    if (!this._collidesAt(this.playerPosition.x, this.playerPosition.y + dy, this.playerPosition.z)) {
+      this.playerPosition.y += dy;
+      this.onGround = false;
+      if (this.playerPosition.y > this.highestAirY) {
+        this.highestAirY = this.playerPosition.y;
+      }
+    } else {
+      if (dy < 0) {
+        // Landed on ground: check fall distance for Phase U5.6 Fall Damage
+        const fallDist = this.highestAirY - this.playerPosition.y;
+        if (fallDist > 4.2 && typeof this.onFallDamage === 'function') {
+          this.onFallDamage(Math.floor(fallDist - 3.5));
+        }
+        this.onGround = true;
+        this.highestAirY = this.playerPosition.y;
+      }
+      this.velocityY = 0;
+    }
+
+    // Safety floor so player never falls below y=1
+    if (this.playerPosition.y < 1.8) {
+      this.ensureNotInsideBlocks();
     }
 
     this._applyCameraTransform();

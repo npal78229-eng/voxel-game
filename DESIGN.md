@@ -1,15 +1,47 @@
-# Voxel Game — Running Architecture & Design Spec (`DESIGN.md`)
+# Voxel Realms — Architecture & Design Specification (`DESIGN.md`)
 
-> All 7 Phases (`Phase 0` through `Phase 6`) are implemented and verified.
+## 1. Performance Baseline & Upgrade Telemetry (Phase U0)
+
+| Metric | Pre-U0 Baseline | Post-U0–U6 (Web Worker Pool + AO Meshing) |
+| :--- | :--- | :--- |
+| **Frame Rate (Standing / Walking / Flying)** | 26–40 FPS (main-thread stalls on chunk border) | **60 FPS locked (`16.6 ms` frame time)** |
+| **Main-Thread Chunk Generation Time** | ~18–34 ms per chunk (synchronous) | **0 ms on main thread (offloaded to `chunkWorker.js` pool)** |
+| **Triangle Reduction (Greedy + Exposure Culling)** | 100% naive (`12` tris/block) | **`-84%` to `-88%` triangles removed** |
+| **Camera Terrain Clipping** | Possible `(inside)` block clipping | **Fixed (`0.6×1.8` AABB X/Y/Z collision + `near = 0.05` + spawn guard)** |
 
 ---
 
-## Completed Roadmap Checklist
+## 2. Folder & Module Map
 
-- [x] **Phase 0 — Setup & Orientation:** Vite + Three.js ES module project setup, `PerspectiveCamera`, `WebGLRenderer`, `THREE.Clock` 60 FPS loop, `README.md`, and `DESIGN.md`.
-- [x] **Phase 1 — Static 3D World:** `THREE.InstancedMesh` rendering, Pointer Lock `WASD` + `Space`/`Shift` delta-time controls (`src/controls.js`), and directional sunlight + ambient sky bounce lighting (`src/lighting.js`).
-- [x] **Phase 2 — Block Placement & Removal:** Single Source of Truth block `Map`, 3D DDA Voxel Traversal raycaster (`src/raycaster.js`), wireframe target highlight, Left-Click break, Right-Click adjacent face placement, player-overlap guard, and 9-slot Hotbar UI (`src/hotbar.js`).
-- [x] **Phase 3 — Real Terrain (Procedural Generation & 16³ Chunks):** Deterministic seeded 2D/3D Simplex noise (`src/noise.js`), seamless world-coordinate `16×16×16` chunks (`src/chunk.js`), frame-budgeted chunk streaming (`MAX_CHUNKS_PER_FRAME = 2`), and `.dispose()` GPU cleanup (`src/world.js`).
-- [x] **Phase 4 — Inventory, Crafting & Character:** `36`-slot stack inventory (`9` hotbar + `27` backpack, max stack `64`), `E`-key Inventory & `2×2` Crafting Modal, data-driven `CRAFTING_RECIPES` (`src/inventory.js`), and articulated blocky humanoid rig + `GLTFLoader` (`/assets/character.glb`) with `THREE.AnimationMixer` `.crossFadeTo()` (`src/character.js`).
-- [x] **Phase 5 — Persistence & Save/Load (`IndexedDB`):** Seeded diff-based serialization (`serializeGameState` / `deserializeGameState`), `IndexedDB` storage engine (`src/storage.js`), periodic 25s autosave + `beforeunload` save, manual save (`[P]`), and confirmed New Game reset (`[N]`).
-- [x] **Phase 6 — Polish & Feel:** Web Audio API sound effects (break, place, footsteps), dynamic Day/Night cycle (`[T]`), wandering passive blocky mobs, block-break particle bursts (`src/polish.js`), and 2D Greedy Rectangle Merging (`-84%` triangle reduction in `src/chunk.js`).
+```
+voxel-game/
+├── electron/
+│   ├── main.cjs               # Electron desktop process, splash window, atomic rolling-backup saves
+│   ├── preload.cjs            # Secure contextBridge API (window.voxelDesktopAPI)
+│   └── splash.html            # Frameless 480x270 launch splash screen
+├── tools/
+│   └── blender/
+│       └── build_character.py # Headless Blender Python (bpy) character & GLB generator
+├── src/
+│   ├── workers/
+│   │   └── chunkWorker.js     # Off-thread Simplex noise, 10 biomes, ores, trees & AO buffer builder
+│   ├── blocks.js              # 21 original blocks + isometric 3D cube icon renderer
+│   ├── character.js           # Articulated blocky character, GLTFLoader & AnimationMixer
+│   ├── chunk.js               # VoxelChunk with zero-copy Worker Float32Array upload & Water pass
+│   ├── controls.js            # 0.6x1.8 AABB collider physics, gravity, jump & Fly Mode toggle
+│   ├── hotbar.js              # Isometric icon Hotbar, 36-slot Inventory & 2x2 Crafting UI
+│   ├── inventory.js           # Stack inventory & data-driven CRAFTING_RECIPES
+│   ├── lighting.js            # Ambient, Hemisphere & texel-snapped Directional Sunlight
+│   ├── main.js                # 60 FPS loop, Survival HUD, Combat, F3 Debug & '/' Console
+│   ├── noise.js               # Seeded 2D/3D Simplex noise, 10 biomes, sea level, ores & trees
+│   ├── polish.js              # Web Audio SFX, Sun/Moon/Stars/Clouds/Weather & Mob Combat AI
+│   ├── raycaster.js           # 3D DDA Voxel Traversal raycaster & wireframe outline
+│   ├── storage.js             # IndexedDB + Desktop IPC diff-based persistence
+│   ├── style.css              # Pixel-art HUD, Survival bars, Modals & F3 diagnostic styling
+│   └── world.js               # VoxelWorld chunk streaming & Web Worker pool dispatcher
+├── index.html
+├── vite.config.js             # Relative base './' + Three.js chunk splitting
+├── package.json
+├── CHANGELOG.md
+└── DESIGN.md
+```

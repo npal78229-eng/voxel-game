@@ -3,81 +3,135 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Voxel Game — Complete Edition (Phases 0–6: Three.js + Vite)</title>
+    <title>Voxel Realms — Upgraded Edition (Three.js + Web Workers + Electron)</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <!-- Top-Left Telemetry, Save/Load Controls & Greedy Meshing HUD -->
-    <div id="hud-overlay">
+    <!-- Phase U1.3: Real Stage-Driven Loading Screen -->
+    <div id="loading-screen" class="loading-overlay">
+      <div class="loading-box">
+        <div class="logo-cube"></div>
+        <h1>VOXEL REALMS</h1>
+        <p id="loading-stage-text">Starting workers &amp; generating spawn chunks...</p>
+        <div class="loading-bar-track">
+          <div id="loading-bar-fill" class="loading-bar-fill" style="width: 15%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase U2.5 & U5.6: Underwater & Hurt Screen Overlays -->
+    <div id="underwater-overlay" class="screen-tint underwater hidden"></div>
+    <div id="hurt-flash-overlay" class="screen-tint hurt hidden"></div>
+
+    <!-- Phase U6.2: Toast Notification Pill -->
+    <div id="toast-banner" class="toast-banner hidden">World Saved</div>
+
+    <!-- Phase U6.2: Top-Right Compact Context Hint Bar (Always visible; F3 opens full debug) -->
+    <div id="top-hint-bar">
+      <span id="biome-pill">Biome: Verdant Meadows</span>
+      <span><b>[F3]</b> Debug</span>
+      <span><b>[E]</b> Inventory</span>
+      <span><b>[V]</b> Camera</span>
+      <span><b>[/]</b> Console</span>
+      <span><b>[Esc]</b> Menu</span>
+    </div>
+
+    <!-- Phase U0.1 & U6.2: F3 Developer Diagnostic Overlay (HIDDEN BY DEFAULT!) -->
+    <div id="debug-overlay" class="hidden">
       <div class="hud-card">
-        <span class="badge">Phases 0–6 Complete &bull; Full Voxel Engine</span>
-        <h1>Minecraft-Style Voxel Game</h1>
-        <p>16&sup3; Chunks &bull; Greedy Meshing &bull; IndexedDB Diff Save &bull; Web Audio &bull; Mobs</p>
+        <span class="badge">F3 Developer Diagnostics (Phase U0–U7)</span>
+        <h1>Engine Telemetry</h1>
+        <p>Web Worker Pool &bull; AABB Physics &bull; 10 Biomes &bull; Vertex AO</p>
 
         <div class="stats-grid">
           <div class="stat-item">
-            <span class="stat-label">FPS</span>
-            <span id="fps-value" class="stat-value">60</span>
+            <span class="stat-label">FPS / Frame</span>
+            <span id="fps-value" class="stat-value">60 (16.6ms)</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Loaded Chunks</span>
-            <span id="chunks-value" class="stat-value">49</span>
+            <span class="stat-label">Draw Calls</span>
+            <span id="drawcalls-value" class="stat-value">48</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Greedy Mesh</span>
+            <span class="stat-label">Chunks / Queue</span>
+            <span id="chunks-value" class="stat-value">49 (0q)</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Greedy AO Mesh</span>
             <span id="greedy-value" class="stat-value">-84% tris</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Time [T]</span>
-            <span id="time-value" class="stat-value">Day (Noon)</span>
+            <span class="stat-label">Time / Weather</span>
+            <span id="time-value" class="stat-value">Day</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Camera [V]</span>
+            <span class="stat-label">Camera / Mode</span>
             <span id="camera-mode-value" class="stat-value">1st-Person</span>
           </div>
-          <div class="stat-item">
-            <span class="stat-label">AnimState</span>
-            <span id="anim-state-value" class="stat-value">Idle</span>
+          <div class="stat-item stat-wide">
+            <span class="stat-label">Biome</span>
+            <span id="biome-value" class="stat-value">Verdant Meadows</span>
           </div>
           <div class="stat-item stat-wide">
-            <span class="stat-label">Save Status [P]</span>
-            <span id="save-status-value" class="stat-value">IndexedDB Ready</span>
-          </div>
-          <div class="stat-item stat-wide">
-            <span class="stat-label">Pos / Chunk</span>
-            <span id="pos-value" class="stat-value">8.0, 12.0, 11.0 [0, 0]</span>
+            <span class="stat-label">Pos / Physics</span>
+            <span id="pos-value" class="stat-value">8.0, 20.0, 11.0 [Walk]</span>
           </div>
           <div class="stat-item stat-wide">
             <span class="stat-label">Targeted Block</span>
             <span id="target-value" class="stat-value">None</span>
           </div>
-        </div>
-
-        <!-- Quick Action Toolbar (Phase 5 Save/New Game & Phase 6 Time/Inventory) -->
-        <div class="hud-actions">
-          <button id="btn-save-game" type="button" class="hud-btn">Save [P]</button>
-          <button id="btn-advance-time" type="button" class="hud-btn">Cycle Time [T]</button>
-          <button id="btn-open-inv" type="button" class="hud-btn">Inventory [E]</button>
-          <button id="btn-new-game" type="button" class="hud-btn danger">New Game [N]</button>
+          <div class="stat-item stat-wide">
+            <span class="stat-label">Save Status</span>
+            <span id="save-status-value" class="stat-value">Ready</span>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Center Crosshair -->
+    <!-- Center Crosshair & Attack Cooldown Indicator -->
     <div id="crosshair" aria-hidden="true"></div>
 
-    <!-- Pointer Lock Instruction Banner -->
-    <div id="pointer-prompt" class="visible">
-      <div class="prompt-box">
-        <strong>Click 3D view to lock cursor &bull; [E] Inventory &amp; Crafting &bull; [V] 3rd-Person &bull; [P] Save &bull; [T] Day/Night</strong>
-        <span><b>WASD + Space/Shift</b>: Move &bull; <b>Left-Click</b>: Break (SFX + Particles) &bull; <b>Right-Click</b>: Place &bull; <b>1–9 / Scroll</b>: Hotbar</span>
+    <!-- Phase U5.6 & U6.2: Bottom Survival HUD (Hearts, Hunger, Hotbar) -->
+    <div id="hotbar-wrapper">
+      <div class="survival-bars">
+        <div id="hearts-bar" class="status-bar" title="Health (10 Hearts)"></div>
+        <div id="hunger-bar" class="status-bar" title="Stamina / Hunger"></div>
       </div>
+      <div id="hotbar-active-label">[1] Turf Block (&times;24)</div>
+      <div id="hotbar-container"></div>
     </div>
 
-    <!-- Bottom Hotbar UI Overlay -->
-    <div id="hotbar-wrapper">
-      <div id="hotbar-active-label">Slot [1]: Grass Block (&times;24) &bull; Press [E] for Inventory &amp; Crafting</div>
-      <div id="hotbar-container"></div>
+    <!-- Phase U6.6: In-Game '/' Command Console -->
+    <div id="command-console" class="command-console hidden">
+      <input
+        id="command-input"
+        type="text"
+        placeholder="Type command: /time set night, /weather rain, /give gem_ore 16, /gamemode fly, /spawn Shambler, /tp 0 35 0"
+        autocomplete="off"
+      />
+    </div>
+
+    <!-- Phase U1.4 & U6.5: Main / Pause Menu Modal (Toggled with Esc) -->
+    <div id="pause-menu-modal" class="modal-backdrop hidden">
+      <div class="menu-window">
+        <span class="badge">Voxel Realms v2.0</span>
+        <h2>Game Menu &amp; Settings</h2>
+        <p>Procedural 10-Biome World &bull; Web Worker Meshing &bull; Save v2</p>
+
+        <div class="menu-grid">
+          <button id="menu-btn-resume" type="button" class="menu-btn primary">Resume Game</button>
+          <button id="menu-btn-save" type="button" class="menu-btn">Save World Now [P]</button>
+          <button id="menu-btn-time" type="button" class="menu-btn">Advance Time of Day [T]</button>
+          <button id="menu-btn-weather" type="button" class="menu-btn">Cycle Weather (Clear / Rain / Snow)</button>
+          <button id="menu-btn-fly" type="button" class="menu-btn">Toggle Walk / Fly Physics [F]</button>
+          <button id="menu-btn-quality" type="button" class="menu-btn">Graphics Quality: High</button>
+          <button id="menu-btn-new" type="button" class="menu-btn danger">New World (Custom Seed)</button>
+        </div>
+
+        <div class="menu-footer">
+          <span>Shortcuts: <b>Double-Space / F</b>: Fly Mode &bull; <b>F2</b>: Screenshot &bull; <b>F3</b>: Debug Overlay &bull; <b>/</b>: Command Console</span>
+        </div>
+      </div>
     </div>
 
     <!-- Full Inventory & 2x2 Crafting Modal (Toggled with 'E' Key) -->

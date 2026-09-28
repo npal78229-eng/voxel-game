@@ -1,8 +1,8 @@
-import { BLOCK_BY_ID } from './blocks.js';
+import { BLOCK_BY_ID, getBlockIconDataURL } from './blocks.js';
 import { HOTBAR_SIZE, TOTAL_SLOTS, CRAFTING_RECIPES } from './inventory.js';
 
 // ============================================================================
-// Phase 4 (Part 4A) — Hotbar UI (with Stack Counts) & Full Inventory/Crafting Modal
+// Phases U4.2 & U6 — Pixel-Art HUD, Isometric 3D Block Icons & Inventory UI
 // ============================================================================
 
 export class HotbarAndInventoryUI {
@@ -21,15 +21,12 @@ export class HotbarAndInventoryUI {
     this.recipeListEl = document.getElementById('recipe-book-list');
     this.cursorHeldEl = document.getElementById('cursor-held-item');
 
-    this.selectedIndex = 0; // 0..8
+    this.selectedIndex = 0;
 
     this._bindEvents();
     this.renderAll();
   }
 
-  /**
-   * Returns the stack object `{ itemType, count }` in the active hotbar slot, or `null`.
-   */
   getSelectedStack() {
     return this.inventory.slots[this.selectedIndex] || null;
   }
@@ -49,12 +46,10 @@ export class HotbarAndInventoryUI {
     }
 
     if (nextState) {
-      // Opening inventory -> release Pointer Lock so mouse is usable for UI interaction
       if (document.pointerLockElement) {
         document.exitPointerLock();
       }
     } else {
-      // Closing inventory -> return any held/crafting items safely to backpack
       this.inventory.returnCraftingGridToInventory();
       if (this.cursorHeldEl) {
         this.cursorHeldEl.classList.add('hidden');
@@ -69,8 +64,12 @@ export class HotbarAndInventoryUI {
   }
 
   _bindEvents() {
-    // Keybinds: 1–9 for hotbar slots, 'E' to toggle Inventory & Crafting modal
     window.addEventListener('keydown', (event) => {
+      // Ignore hotkeys if typing inside the '/' command console input
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+        return;
+      }
+
       if (event.code === 'KeyE') {
         event.preventDefault();
         this.toggleInventoryModal();
@@ -90,7 +89,6 @@ export class HotbarAndInventoryUI {
       }
     });
 
-    // Mouse scroll wheel cycles through hotbar slots when inventory modal is closed
     window.addEventListener(
       'wheel',
       (event) => {
@@ -104,14 +102,12 @@ export class HotbarAndInventoryUI {
       { passive: true }
     );
 
-    // Track cursor position for floating held item preview inside Inventory modal
     window.addEventListener('mousemove', (event) => {
       if (!this.inventory.isOpen || !this.cursorHeldEl) return;
       this.cursorHeldEl.style.left = `${event.clientX + 12}px`;
       this.cursorHeldEl.style.top = `${event.clientY + 12}px`;
     });
 
-    // Close button inside modal
     const closeBtn = document.getElementById('close-inventory-btn');
     if (closeBtn) {
       closeBtn.addEventListener('click', () => {
@@ -121,6 +117,10 @@ export class HotbarAndInventoryUI {
     }
   }
 
+  /**
+   * Phase U6.3 — Uses cached isometric 3D cube icons rendered from each block's
+   * top, sunlit left, and shaded right textures.
+   */
   _createSlotMarkup(stack, keyBadge = null) {
     const keyHtml =
       keyBadge !== null ? `<span class="slot-key">${keyBadge}</span>` : '';
@@ -132,12 +132,11 @@ export class HotbarAndInventoryUI {
     const block = BLOCK_BY_ID[stack.itemType];
     if (!block) return `${keyHtml}<div class="slot-empty"></div>`;
 
+    const iconUrl = getBlockIconDataURL(block.id);
+
     return `
       ${keyHtml}
-      <div class="slot-swatch">
-        <div class="swatch-top" style="background: ${block.colorHex};"></div>
-        <div class="swatch-side" style="background: ${block.sideHex};"></div>
-      </div>
+      <img class="iso-icon" src="${iconUrl}" alt="${block.name}" draggable="false" />
       <span class="slot-name">${block.name.split(' ')[0]}</span>
       <span class="slot-count">${stack.count}</span>
     `;
@@ -165,9 +164,9 @@ export class HotbarAndInventoryUI {
     if (this.hotbarLabel) {
       if (activeStack && BLOCK_BY_ID[activeStack.itemType]) {
         const b = BLOCK_BY_ID[activeStack.itemType];
-        this.hotbarLabel.textContent = `Slot [${this.selectedIndex + 1}]: ${b.name} (×${activeStack.count}) • Press [E] for Inventory & Crafting`;
+        this.hotbarLabel.textContent = `[${this.selectedIndex + 1}] ${b.name} (×${activeStack.count})`;
       } else {
-        this.hotbarLabel.textContent = `Slot [${this.selectedIndex + 1}]: Empty • Press [E] for Inventory & Crafting`;
+        this.hotbarLabel.textContent = `[${this.selectedIndex + 1}] Empty Hand (Melee Attack: 4 DMG)`;
       }
     }
   }
@@ -175,7 +174,6 @@ export class HotbarAndInventoryUI {
   renderInventoryModal() {
     if (!this.inventory.isOpen) return;
 
-    // 1. Render 2x2 Crafting Grid (4 slots)
     if (this.craftingGridEl) {
       this.craftingGridEl.innerHTML = '';
       for (let i = 0; i < 4; i++) {
@@ -192,7 +190,6 @@ export class HotbarAndInventoryUI {
       }
     }
 
-    // 2. Render Crafting Output Slot
     if (this.craftOutputEl) {
       const matchedRecipe = this.inventory.getMatchingRecipe();
       this.craftOutputEl.innerHTML = '';
@@ -212,19 +209,16 @@ export class HotbarAndInventoryUI {
       };
     }
 
-    // 3. Render Data-Driven Recipe Book Helper
     if (this.recipeListEl) {
       this.recipeListEl.innerHTML = '';
       for (const recipe of CRAFTING_RECIPES) {
         const outBlock = BLOCK_BY_ID[recipe.output.itemType];
+        const iconUrl = getBlockIconDataURL(outBlock.id);
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'recipe-card';
         btn.innerHTML = `
-          <div class="slot-swatch small-swatch">
-            <div class="swatch-top" style="background: ${outBlock.colorHex};"></div>
-            <div class="swatch-side" style="background: ${outBlock.sideHex};"></div>
-          </div>
+          <img class="iso-icon small" src="${iconUrl}" alt="${outBlock.name}" />
           <div class="recipe-meta">
             <strong>${recipe.name}</strong>
             <span>${recipe.description}</span>
@@ -241,7 +235,6 @@ export class HotbarAndInventoryUI {
       }
     }
 
-    // 4. Render 27 Backpack Slots (indices 9..35)
     if (this.backpackGridEl) {
       this.backpackGridEl.innerHTML = '';
       for (let i = HOTBAR_SIZE; i < TOTAL_SLOTS; i++) {
@@ -258,7 +251,6 @@ export class HotbarAndInventoryUI {
       }
     }
 
-    // 5. Render 9 Hotbar Slots inside Modal (indices 0..8)
     if (this.modalHotbarGridEl) {
       this.modalHotbarGridEl.innerHTML = '';
       for (let i = 0; i < HOTBAR_SIZE; i++) {
@@ -275,7 +267,6 @@ export class HotbarAndInventoryUI {
       }
     }
 
-    // 6. Update floating cursor stack preview
     if (this.cursorHeldEl) {
       if (this.inventory.cursorStack) {
         this.cursorHeldEl.classList.remove('hidden');
