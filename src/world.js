@@ -11,89 +11,85 @@ export const RENDER_RADIUS = 3;
 export const UNLOAD_RADIUS = 4;
 export const MAX_CHUNKS_PER_FRAME = 2;
 
-/**
- * Phase U2.1 — Procedurally paints a crisp 16x16-style pixel-art voxel texture
- * with half-texel UV inset so edges never bleed.
- */
-function createTintableVoxelMaterial() {
-  const tileSize = 64;
-  const canvas = document.createElement('canvas');
-  canvas.width = tileSize * 3;
-  canvas.height = tileSize;
-  const ctx = canvas.getContext('2d');
+function applyAtlasShader(material) {
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader =
+      `attribute float faceType;\nattribute vec3 instanceTiles;\n` +
+      shader.vertexShader.replace(
+        '#include <uv_vertex>',
+        `#include <uv_vertex>
+#ifdef USE_MAP
+  float tileIdx = (faceType < 0.5) ? instanceTiles.x : ((faceType < 1.5) ? instanceTiles.y : instanceTiles.z);
+  float col = mod(tileIdx, 16.0);
+  float row = floor(tileIdx / 16.0);
+  float eps = 0.5 / 512.0;
+  float u0 = (col * 32.0) / 512.0 + eps;
+  float u1 = ((col + 1.0) * 32.0) / 512.0 - eps;
+  float v0 = 1.0 - ((row + 1.0) * 32.0) / 512.0 + eps;
+  float v1 = 1.0 - (row * 32.0) / 512.0 - eps;
+  vMapUv = vec2(mix(u0, u1, uv.x), mix(v0, v1, uv.y));
+#endif`
+      );
+  };
+  return material;
+}
 
-  function paintTile(offsetX, baseLuma, grainDelta, borderAlpha) {
-    ctx.fillStyle = `rgb(${baseLuma}, ${baseLuma}, ${baseLuma})`;
-    ctx.fillRect(offsetX, 0, tileSize, tileSize);
-
-    for (let py = 0; py < tileSize; py += 4) {
-      for (let px = 0; px < tileSize; px += 4) {
-        const hash = ((px * 37 + py * 19) % 9) - 4;
-        const v = Math.max(0, Math.min(255, baseLuma + hash * grainDelta));
-        ctx.fillStyle = `rgb(${v}, ${v}, ${v})`;
-        ctx.fillRect(offsetX + px, py, 4, 4);
-      }
-    }
-
-    ctx.strokeStyle = `rgba(0, 0, 0, ${borderAlpha})`;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(offsetX + 1, 1, tileSize - 2, tileSize - 2);
+let sharedAtlasTexture = null;
+export function getSharedAtlasTexture() {
+  if (!sharedAtlasTexture) {
+    const loader = new THREE.TextureLoader();
+    sharedAtlasTexture = loader.load('./assets/textures/atlas.png');
+    sharedAtlasTexture.magFilter = THREE.NearestFilter;
+    sharedAtlasTexture.minFilter = THREE.NearestFilter;
+    sharedAtlasTexture.generateMipmaps = false;
+    sharedAtlasTexture.colorSpace = THREE.SRGBColorSpace;
   }
+  return sharedAtlasTexture;
+}
 
-  paintTile(0, 250, 3, 0.16);
-  paintTile(tileSize, 218, 4, 0.22);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
-  ctx.fillRect(tileSize + 2, 2, tileSize - 4, 10);
-  paintTile(tileSize * 2, 168, 3, 0.26);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.magFilter = THREE.NearestFilter;
-  texture.minFilter = THREE.NearestFilter;
-  texture.colorSpace = THREE.SRGBColorSpace;
-
-  return new THREE.MeshStandardMaterial({
-    map: texture,
-    roughness: 0.78,
+function createTintableVoxelMaterial() {
+  const mat = new THREE.MeshStandardMaterial({
+    map: getSharedAtlasTexture(),
+    roughness: 0.82,
     metalness: 0.04,
   });
+  return applyAtlasShader(mat);
 }
 
 function createWaterMaterial() {
-  return new THREE.MeshStandardMaterial({
+  const mat = new THREE.MeshStandardMaterial({
+    map: getSharedAtlasTexture(),
     color: 0xffffff,
     transparent: true,
-    opacity: 0.66,
+    opacity: 0.78,
     depthWrite: false,
-    roughness: 0.18,
+    roughness: 0.16,
     metalness: 0.1,
   });
+  return applyAtlasShader(mat);
 }
 
 function createVoxelBoxGeometry() {
   const geometry = new THREE.BoxGeometry(1, 1, 1);
   const uvAttr = geometry.attributes.uv;
 
-  // Half-texel UV inset (Phase U2.1) to prevent tile edge bleeding
-  const eps = 0.003;
-  const tileRanges = [
-    [1 / 3 + eps, 2 / 3 - eps],
-    [1 / 3 + eps, 2 / 3 - eps],
-    [0 / 3 + eps, 1 / 3 - eps],
-    [2 / 3 + eps, 3 / 3 - eps],
-    [1 / 3 + eps, 2 / 3 - eps],
-    [1 / 3 + eps, 2 / 3 - eps],
-  ];
+  // BoxGeometry face order: 0:+X(side), 1:-X(side), 2:+Y(top), 3:-Y(bottom), 4:+Z(side), 5:-Z(side)
+  const faceTypeByFace = [1.0, 1.0, 0.0, 2.0, 1.0, 1.0];
+  const faceTypes = new Float32Array(24);
 
   for (let face = 0; face < 6; face++) {
-    const [uMin, uMax] = tileRanges[face];
     const baseVertex = face * 4;
-    uvAttr.setXY(baseVertex + 0, uMin, 1 - eps);
-    uvAttr.setXY(baseVertex + 1, uMax, 1 - eps);
-    uvAttr.setXY(baseVertex + 2, uMin, eps);
-    uvAttr.setXY(baseVertex + 3, uMax, eps);
+    uvAttr.setXY(baseVertex + 0, 0.0, 1.0);
+    uvAttr.setXY(baseVertex + 1, 1.0, 1.0);
+    uvAttr.setXY(baseVertex + 2, 0.0, 0.0);
+    uvAttr.setXY(baseVertex + 3, 1.0, 0.0);
+    for (let v = 0; v < 4; v++) {
+      faceTypes[baseVertex + v] = faceTypeByFace[face];
+    }
   }
 
   uvAttr.needsUpdate = true;
+  geometry.setAttribute('faceType', new THREE.BufferAttribute(faceTypes, 1));
   return geometry;
 }
 

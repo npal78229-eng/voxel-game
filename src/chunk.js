@@ -48,10 +48,16 @@ export class VoxelChunk {
     if (!this.instancedMesh || this.instancedMesh.instanceMatrix.count < payload.opaqueCount) {
       if (this.instancedMesh) {
         this.world.scene.remove(this.instancedMesh);
+        this.instancedMesh.geometry.dispose();
         this.instancedMesh.dispose();
       }
+      const chunkGeo = this.world.sharedGeometry.clone();
+      chunkGeo.setAttribute(
+        'instanceTiles',
+        new THREE.InstancedBufferAttribute(new Float32Array(opaqueCap * 3), 3)
+      );
       this.instancedMesh = new THREE.InstancedMesh(
-        this.world.sharedGeometry,
+        chunkGeo,
         this.world.sharedMaterial,
         opaqueCap
       );
@@ -68,6 +74,11 @@ export class VoxelChunk {
       );
     }
     this.instancedMesh.instanceColor.array.set(payload.opaqueColors);
+    if (payload.opaqueTiles) {
+      const tileAttr = this.instancedMesh.geometry.getAttribute('instanceTiles');
+      tileAttr.array.set(payload.opaqueTiles);
+      tileAttr.needsUpdate = true;
+    }
     this.instancedMesh.count = payload.opaqueCount;
     this.instancedMesh.instanceMatrix.needsUpdate = true;
     this.instancedMesh.instanceColor.needsUpdate = true;
@@ -79,10 +90,16 @@ export class VoxelChunk {
       if (!this.waterMesh || this.waterMesh.instanceMatrix.count < payload.transCount) {
         if (this.waterMesh) {
           this.world.scene.remove(this.waterMesh);
+          this.waterMesh.geometry.dispose();
           this.waterMesh.dispose();
         }
+        const waterGeo = this.world.sharedGeometry.clone();
+        waterGeo.setAttribute(
+          'instanceTiles',
+          new THREE.InstancedBufferAttribute(new Float32Array(transCap * 3), 3)
+        );
         this.waterMesh = new THREE.InstancedMesh(
-          this.world.sharedGeometry,
+          waterGeo,
           this.world.sharedWaterMaterial,
           transCap
         );
@@ -97,6 +114,11 @@ export class VoxelChunk {
         );
       }
       this.waterMesh.instanceColor.array.set(payload.transColors);
+      if (payload.transTiles) {
+        const wTileAttr = this.waterMesh.geometry.getAttribute('instanceTiles');
+        wTileAttr.array.set(payload.transTiles);
+        wTileAttr.needsUpdate = true;
+      }
       this.waterMesh.count = payload.transCount;
       this.waterMesh.instanceMatrix.needsUpdate = true;
       this.waterMesh.instanceColor.needsUpdate = true;
@@ -194,10 +216,16 @@ export class VoxelChunk {
     ) {
       if (this.instancedMesh) {
         this.world.scene.remove(this.instancedMesh);
+        this.instancedMesh.geometry.dispose();
         this.instancedMesh.dispose();
       }
+      const chunkGeo = this.world.sharedGeometry.clone();
+      chunkGeo.setAttribute(
+        'instanceTiles',
+        new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3)
+      );
       this.instancedMesh = new THREE.InstancedMesh(
-        this.world.sharedGeometry,
+        chunkGeo,
         this.world.sharedMaterial,
         capacity
       );
@@ -209,6 +237,7 @@ export class VoxelChunk {
     const dummy = this.world.dummy;
     const defaultColor = BLOCK_DEFINITIONS[0].color;
     const tempColor = new THREE.Color();
+    const tileAttr = this.instancedMesh.geometry.getAttribute('instanceTiles');
 
     for (let i = 0; i < opaqueEntries.length; i++) {
       const [wx, wy, wz, blockType] = opaqueEntries[i];
@@ -216,7 +245,7 @@ export class VoxelChunk {
       dummy.updateMatrix();
       this.instancedMesh.setMatrixAt(i, dummy.matrix);
 
-      const blockDef = BLOCK_BY_ID[blockType];
+      const blockDef = BLOCK_BY_ID[blockType] || BLOCK_BY_ID.grass;
       tempColor.copy(blockDef ? blockDef.color : defaultColor);
 
       // Apply per-voxel Ambient Occlusion factor
@@ -228,8 +257,27 @@ export class VoxelChunk {
       tempColor.multiplyScalar(1.0 - Math.min(3, occluders) * 0.085);
 
       this.instancedMesh.setColorAt(i, tempColor);
+
+      if (tileAttr) {
+        const tiles = blockDef.tiles || { top: 0, side: 3, bottom: 4 };
+        let topTile = tiles.top;
+        let sideTile = tiles.side;
+        let bottomTile = tiles.bottom;
+        if (tiles.topVariants && tiles.topVariants.length > 0) {
+          const h = Math.abs((wx * 73856093) ^ (wy * 19349663) ^ (wz * 83492791));
+          const vTile = tiles.topVariants[h % tiles.topVariants.length];
+          topTile = vTile;
+          if (tiles.side === tiles.top) sideTile = vTile;
+          if (tiles.bottom === tiles.top) bottomTile = vTile;
+        }
+        const tOffset = i * 3;
+        tileAttr.array[tOffset + 0] = topTile;
+        tileAttr.array[tOffset + 1] = sideTile;
+        tileAttr.array[tOffset + 2] = bottomTile;
+      }
     }
 
+    if (tileAttr) tileAttr.needsUpdate = true;
     this.visibleInstanceCount = opaqueEntries.length + transEntries.length;
     this.instancedMesh.count = opaqueEntries.length;
     this.instancedMesh.instanceMatrix.needsUpdate = true;
@@ -244,16 +292,23 @@ export class VoxelChunk {
       if (!this.waterMesh || this.waterMesh.instanceMatrix.count < transEntries.length) {
         if (this.waterMesh) {
           this.world.scene.remove(this.waterMesh);
+          this.waterMesh.geometry.dispose();
           this.waterMesh.dispose();
         }
+        const waterGeo = this.world.sharedGeometry.clone();
+        waterGeo.setAttribute(
+          'instanceTiles',
+          new THREE.InstancedBufferAttribute(new Float32Array(transCap * 3), 3)
+        );
         this.waterMesh = new THREE.InstancedMesh(
-          this.world.sharedGeometry,
+          waterGeo,
           this.world.sharedWaterMaterial,
           transCap
         );
         this.waterMesh.renderOrder = 2;
         this.world.scene.add(this.waterMesh);
       }
+      const wTileAttr = this.waterMesh.geometry.getAttribute('instanceTiles');
       for (let i = 0; i < transEntries.length; i++) {
         const [wx, wy, wz, blockType] = transEntries[i];
         dummy.position.set(wx, wy, wz);
@@ -261,7 +316,14 @@ export class VoxelChunk {
         this.waterMesh.setMatrixAt(i, dummy.matrix);
         const def = BLOCK_BY_ID[blockType] || BLOCK_BY_ID.water;
         this.waterMesh.setColorAt(i, def.color);
+        if (wTileAttr) {
+          const tiles = def.tiles || { top: 30, side: 30, bottom: 30 };
+          wTileAttr.array[i * 3 + 0] = tiles.top;
+          wTileAttr.array[i * 3 + 1] = tiles.side;
+          wTileAttr.array[i * 3 + 2] = tiles.bottom;
+        }
       }
+      if (wTileAttr) wTileAttr.needsUpdate = true;
       this.waterMesh.count = transEntries.length;
       this.waterMesh.instanceMatrix.needsUpdate = true;
       if (this.waterMesh.instanceColor) {
@@ -276,11 +338,13 @@ export class VoxelChunk {
   dispose() {
     if (this.instancedMesh) {
       this.world.scene.remove(this.instancedMesh);
+      this.instancedMesh.geometry.dispose();
       this.instancedMesh.dispose();
       this.instancedMesh = null;
     }
     if (this.waterMesh) {
       this.world.scene.remove(this.waterMesh);
+      this.waterMesh.geometry.dispose();
       this.waterMesh.dispose();
       this.waterMesh = null;
     }

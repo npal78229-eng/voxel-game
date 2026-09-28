@@ -313,21 +313,25 @@ export class SeededSimplexNoise {
         const relY = wy - tree.surfaceY;
         if (relY < 1 || relY > 6) continue;
 
-        // Desert cactus (single column)
+        // Desert cactus (single column using real cactus_side & cactus_top)
         if (tree.biomeId === 'desert') {
-          if (dx === 0 && dz === 0 && relY <= 3) return 'leaves';
+          if (dx === 0 && dz === 0 && relY <= 3) return 'cactus';
           continue;
         }
 
-        const logType = tree.biomeId === 'birch_forest' ? 'birch_wood' : 'wood';
+        const isBirch = tree.biomeId === 'birch_forest';
+        const isPine = tree.biomeId === 'taiga' || tree.biomeId === 'tundra' || tree.biomeId === 'mountains';
+        const logType = isBirch ? 'birch_wood' : isPine ? 'pine_log' : 'wood';
+        const leafType = isBirch ? 'birch_leaves' : isPine ? 'pine_leaves' : 'leaves';
+
         if (dx === 0 && dz === 0 && relY <= 4) {
           return logType;
         }
         // Canopy leaves at relY 3..5
         if (relY >= 3 && relY <= 5) {
           const dist = Math.abs(dx) + Math.abs(dz);
-          if (relY === 5 && dist <= 1) return 'leaves';
-          if (relY <= 4 && dist <= 3) return 'leaves';
+          if (relY === 5 && dist <= 1) return leafType;
+          if (relY <= 4 && dist <= 3) return leafType;
         }
       }
     }
@@ -344,10 +348,15 @@ export class SeededSimplexNoise {
     const surfaceY = this.getSurfaceHeight(wx, wz);
     const biome = this.getBiomeAt(wx, wz);
 
-    // Above solid ground: check water sea level or deterministic trees
+    // Above solid ground: check water sea level, rare pumpkins/melons, or deterministic trees
     if (wy > surfaceY) {
       if (wy <= SEA_LEVEL) {
         return biome.id === 'tundra' && wy === SEA_LEVEL ? 'ice' : 'water';
+      }
+      if (wy === surfaceY + 1 && surfaceY > SEA_LEVEL + 1 && ((wx & 15) === 7 && (wz & 15) === 7)) {
+        const patchHash = this._hash2(wx + 31, wz - 17);
+        if (patchHash < 0.08 && biome.id === 'plains') return 'pumpkin';
+        if (patchHash >= 0.08 && patchHash < 0.15 && (biome.id === 'swamp' || biome.id === 'forest')) return 'melon';
       }
       if (wy <= surfaceY + 6) {
         return this._getTreeBlockAt(wx, wy, wz);
@@ -362,18 +371,34 @@ export class SeededSimplexNoise {
 
     // Surface & Subsurface Biome Blocks
     if (wy === surfaceY) {
-      if (surfaceY <= SEA_LEVEL + 1) return 'sand';
+      if (surfaceY <= SEA_LEVEL + 1) {
+        return this._hash2(wx, wz) < 0.28 ? 'gravel' : 'sand';
+      }
       return biome.surface;
     }
     if (wy >= surfaceY - 2) {
-      return surfaceY <= SEA_LEVEL + 1 ? 'sand' : biome.sub;
+      if (surfaceY <= SEA_LEVEL + 1) return 'gravel';
+      if (biome.id === 'desert') return 'sandstone';
+      return biome.sub;
     }
 
-    // Depth-based Ore Veins (Phase U3.3)
+    // Deep obsidian & mossy cobblestone near underground magma level
+    if (wy <= 3 && this._hash2(wx + wy, wz - wy) < 0.14) {
+      return wy <= 2 ? 'obsidian' : 'mossy_cobble';
+    }
+
+    // Depth-based Ore Veins (Phase U3.3 — Coal, Iron, Gold, Redstone, Emerald, Diamond/Crystal)
     const oreNoise = this.noise3D(wx * 0.22 + 90, wy * 0.22, wz * 0.22 - 90);
-    if (oreNoise > 0.72) {
-      if (wy < 8) return 'gem_ore';
-      if (wy < 15) return 'gold_ore';
+    if (oreNoise > 0.71) {
+      const oreVariant = this._hash2(wx * 3 + wy, wz * 5 - wy);
+      if (wy < 9) {
+        if (oreVariant < 0.34) return 'gem_ore';
+        if (oreVariant < 0.68) return 'redstone_ore';
+        return 'emerald_ore';
+      }
+      if (wy < 15) {
+        return oreVariant < 0.6 ? 'gold_ore' : 'redstone_ore';
+      }
       if (wy < 24) return 'iron_ore';
       return 'coal_ore';
     }

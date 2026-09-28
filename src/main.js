@@ -356,7 +356,7 @@ window.addEventListener('keydown', (event) => {
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
     const sx = controls.position.x + forward.x * 3.2;
     const sz = controls.position.z + forward.z * 3.2;
-    passiveMobs.spawnMob(sx, sz, 'Pig');
+    mobs.spawnMob(sx, sz, 'Pig');
     sfx.playPlace();
     showToast('Spawned Blender Pig! 🐷');
   }

@@ -22,39 +22,67 @@ export const CRAFTING_RECIPES = [
     output: { itemType: 'planks', count: 4 },
   },
   {
+    id: 'birch_planks_from_log',
+    name: 'Birch Planks (x4)',
+    description: '1 Birch Log -> 4 Birch Planks',
+    inputs: { birch_wood: 1 },
+    output: { itemType: 'birch_planks', count: 4 },
+  },
+  {
+    id: 'pine_planks_from_log',
+    name: 'Spruce Planks (x4)',
+    description: '1 Spruce Log -> 4 Spruce Planks',
+    inputs: { pine_log: 1 },
+    output: { itemType: 'pine_planks', count: 4 },
+  },
+  {
+    id: 'crafting_table_from_planks',
+    name: 'Crafting Table (x1)',
+    description: '4 Oak Planks -> 1 Crafting Table',
+    inputs: { planks: 4 },
+    output: { itemType: 'crafting_table', count: 1 },
+  },
+  {
+    id: 'furnace_from_cobble',
+    name: 'Smelting Furnace (x1)',
+    description: '4 Cobblestone -> 1 Smelting Furnace',
+    inputs: { cobblestone: 4 },
+    output: { itemType: 'furnace', count: 1 },
+  },
+  {
+    id: 'stone_bricks_from_stone',
+    name: 'Stone Bricks (x4)',
+    description: '4 Stone -> 4 Stone Bricks',
+    inputs: { stone: 4 },
+    output: { itemType: 'stone_bricks', count: 4 },
+  },
+  {
+    id: 'sandstone_from_sand',
+    name: 'Chiseled Sandstone (x2)',
+    description: '4 Sand -> 2 Sandstone',
+    inputs: { sand: 4 },
+    output: { itemType: 'sandstone', count: 2 },
+  },
+  {
+    id: 'tnt_from_sand_coal',
+    name: 'TNT Explosive (x2)',
+    description: '2 Sand + 2 Coal Ore -> 2 TNT',
+    inputs: { sand: 2, coal_ore: 2 },
+    output: { itemType: 'tnt', count: 2 },
+  },
+  {
+    id: 'bookshelf_from_planks',
+    name: 'Bookshelf (x2)',
+    description: '2 Oak Planks + 1 Wood -> 2 Bookshelf',
+    inputs: { planks: 2, wood: 1 },
+    output: { itemType: 'bookshelf', count: 2 },
+  },
+  {
     id: 'bricks_from_dirt_sand',
     name: 'Clay Bricks (x4)',
     description: '2 Dirt + 2 Sand -> 4 Clay Bricks',
     inputs: { dirt: 2, sand: 2 },
     output: { itemType: 'brick', count: 4 },
-  },
-  {
-    id: 'cobble_from_stone',
-    name: 'Cobblestone (x2)',
-    description: '2 Stone -> 2 Cobblestone',
-    inputs: { stone: 2 },
-    output: { itemType: 'cobblestone', count: 2 },
-  },
-  {
-    id: 'stone_from_cobble',
-    name: 'Smelted Stone (x4)',
-    description: '4 Cobblestone -> 4 Stone',
-    inputs: { cobblestone: 4 },
-    output: { itemType: 'stone', count: 4 },
-  },
-  {
-    id: 'grass_from_dirt_leaves',
-    name: 'Grass Turf (x2)',
-    description: '1 Dirt + 1 Oak Leaves -> 2 Grass Block',
-    inputs: { dirt: 1, leaves: 1 },
-    output: { itemType: 'grass', count: 2 },
-  },
-  {
-    id: 'log_from_planks',
-    name: 'Compressed Log (x1)',
-    description: '2 Oak Planks -> 1 Oak Log',
-    inputs: { planks: 2 },
-    output: { itemType: 'wood', count: 1 },
   },
 ];
 
@@ -77,21 +105,17 @@ export class InventorySystem {
   }
 
   /**
-   * Populates the hotbar with an initial builder kit so the player can immediately
-   * test placing, crafting, and collecting broken blocks.
+   * Populates the hotbar with an initial builder kit and fills backpack slots
+   * with the full suite of Minecraft blocks so the player can immediately place & craft.
    */
   populateStarterKit() {
     this.slots.fill(null);
-    const starterCounts = [24, 24, 24, 16, 12, 20, 16, 20, 12];
+    const starterCounts = [32, 32, 32, 32, 24, 32, 24, 24, 24];
     BLOCK_DEFINITIONS.forEach((def, idx) => {
-      if (idx < HOTBAR_SIZE) {
+      if (idx < TOTAL_SLOTS) {
         this.slots[idx] = { itemType: def.id, count: starterCounts[idx] || 16 };
       }
     });
-    // Also put some extra crafting materials in the first few backpack slots
-    this.slots[9] = { itemType: 'wood', count: 16 };
-    this.slots[10] = { itemType: 'dirt', count: 32 };
-    this.slots[11] = { itemType: 'sand', count: 32 };
     this._notify();
   }
 

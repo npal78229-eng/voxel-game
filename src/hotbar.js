@@ -136,7 +136,7 @@ export class HotbarAndInventoryUI {
 
     return `
       ${keyHtml}
-      <img class="iso-icon" src="${iconUrl}" alt="${block.name}" draggable="false" />
+      <img class="iso-icon" data-block-id="${block.id}" src="${iconUrl}" alt="${block.name}" draggable="false" />
       <span class="slot-name">${block.name.split(' ')[0]}</span>
       <span class="slot-count">${stack.count}</span>
     `;

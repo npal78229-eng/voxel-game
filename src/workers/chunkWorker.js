@@ -141,9 +141,10 @@ self.onmessage = (event) => {
     }
   }
 
-  // Build zero-copy Float32Array transform matrices & AO-baked RGB colors
+  // Build zero-copy Float32Array transform matrices, AO colors, and [top, side, bottom] atlas tile indices
   const opaqueMatrices = new Float32Array(opaqueEntries.length * 16);
   const opaqueColors = new Float32Array(opaqueEntries.length * 3);
+  const opaqueTiles = new Float32Array(opaqueEntries.length * 3);
 
   for (let i = 0; i < opaqueEntries.length; i++) {
     const [wx, wy, wz, blockType] = opaqueEntries[i];
@@ -176,10 +177,26 @@ self.onmessage = (event) => {
     opaqueColors[cOffset + 0] = def.color.r * aoFactor;
     opaqueColors[cOffset + 1] = def.color.g * aoFactor;
     opaqueColors[cOffset + 2] = def.color.b * aoFactor;
+
+    const tiles = def.tiles || { top: 0, side: 3, bottom: 4 };
+    let topTile = tiles.top;
+    let sideTile = tiles.side;
+    let bottomTile = tiles.bottom;
+    if (tiles.topVariants && tiles.topVariants.length > 0) {
+      const h = Math.abs((wx * 73856093) ^ (wy * 19349663) ^ (wz * 83492791));
+      const vTile = tiles.topVariants[h % tiles.topVariants.length];
+      topTile = vTile;
+      if (tiles.side === tiles.top) sideTile = vTile;
+      if (tiles.bottom === tiles.top) bottomTile = vTile;
+    }
+    opaqueTiles[cOffset + 0] = topTile;
+    opaqueTiles[cOffset + 1] = sideTile;
+    opaqueTiles[cOffset + 2] = bottomTile;
   }
 
   const transMatrices = new Float32Array(transparentEntries.length * 16);
   const transColors = new Float32Array(transparentEntries.length * 3);
+  const transTiles = new Float32Array(transparentEntries.length * 3);
 
   for (let i = 0; i < transparentEntries.length; i++) {
     const [wx, wy, wz, blockType] = transparentEntries[i];
@@ -197,6 +214,11 @@ self.onmessage = (event) => {
     transColors[cOffset + 0] = def.color.r;
     transColors[cOffset + 1] = def.color.g;
     transColors[cOffset + 2] = def.color.b;
+
+    const tiles = def.tiles || { top: 30, side: 30, bottom: 30 };
+    transTiles[cOffset + 0] = tiles.top;
+    transTiles[cOffset + 1] = tiles.side;
+    transTiles[cOffset + 2] = tiles.bottom;
   }
 
   const naiveTris = blocks.size * 12;
@@ -211,17 +233,21 @@ self.onmessage = (event) => {
       opaqueCount: opaqueEntries.length,
       opaqueMatrices,
       opaqueColors,
+      opaqueTiles,
       transCount: transparentEntries.length,
       transMatrices,
       transColors,
+      transTiles,
       naiveTris,
       greedyTris,
     },
     [
       opaqueMatrices.buffer,
       opaqueColors.buffer,
+      opaqueTiles.buffer,
       transMatrices.buffer,
       transColors.buffer,
+      transTiles.buffer,
     ]
   );
 };
