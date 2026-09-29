@@ -33,6 +33,16 @@ import {
 } from './mobAttacks.js';
 import { NightProjectileSystem } from './projectiles.js';
 import { DaylightBurnSystem } from './daylightBurn.js';
+import {
+  AUTO_JUMP_IMPULSE,
+  AUTO_JUMP_COOLDOWN,
+  isChunkLoadedAt,
+  getHighestSolidY,
+  evaluateObstacleAhead,
+  isCliffDropAhead,
+  moveEntityWithAABB,
+  pushEntityOutOfBlocks,
+} from './collision.js';
 
 // ============================================================================
 // Phases U2.3, U3.6, U5 & Tasks F1, F2, F3 — Combat, Spawning & 16-Mob Suite
@@ -625,13 +635,46 @@ export class PassiveMobManager {
   _createMob(cfg, index, customX = null, customZ = null) {
     const typeName = cfg.id || cfg.type || 'Pig';
     const angle = (index / Math.max(1, ALL_14_BLENDER_MOB_TYPES.length)) * Math.PI * 2;
-    const x = customX !== null ? customX : 8 + Math.cos(angle) * 14;
-    const z = customZ !== null ? customZ : 11 + Math.sin(angle) * 14;
-    const y = this.world.getSurfaceHeight(x, z) + 0.5;
+    let x = customX !== null ? customX : 8 + Math.cos(angle) * 14;
+    let z = customZ !== null ? customZ : 11 + Math.sin(angle) * 14;
+
+    // Part B3.4 — Spawn on the highest solid block at the chosen column, avoiding water for land mobs
+    let topSolidY = getHighestSolidY(this.world, x, z);
+    if (
+      typeof this.world?.getBlock === 'function' &&
+      this.world.getBlock(Math.floor(x + 0.5), topSolidY + 1, Math.floor(z + 0.5)) === 'water'
+    ) {
+      // Search nearby columns within 6 blocks for dry land
+      for (let r = 2; r <= 6; r += 2) {
+        let foundDry = false;
+        for (const [ox, oz] of [[r, 0], [-r, 0], [0, r], [0, -r]]) {
+          const candY = getHighestSolidY(this.world, x + ox, z + oz);
+          if (
+            this.world.getBlock(
+              Math.floor(x + ox + 0.5),
+              candY + 1,
+              Math.floor(z + oz + 0.5)
+            ) !== 'water'
+          ) {
+            x += ox;
+            z += oz;
+            topSolidY = candY;
+            foundDry = true;
+            break;
+          }
+        }
+        if (foundDry) break;
+      }
+    }
+
+    const basePos = { x, y: topSolidY + 0.5, z };
+    const halfW = Math.max(0.28, (cfg.hitbox?.width || 0.75) * 0.45);
+    const colH = Math.max(0.8, cfg.hitbox?.height || 1.2);
+    pushEntityOutOfBlocks(this.world, basePos, halfW, colH);
 
     const rig = createBlenderMobInstance(typeName);
-    rig.group.position.set(x, y, z);
-    const initYaw = Math.atan2(-(8 - x), -(11 - z));
+    rig.group.position.set(basePos.x, basePos.y, basePos.z);
+    const initYaw = Math.atan2(-(8 - basePos.x), -(11 - basePos.z));
     rig.group.rotation.y = initYaw;
     this.scene.add(rig.group);
 
@@ -648,6 +691,17 @@ export class PassiveMobManager {
       id: `${typeName}_${Date.now()}_${Math.floor(Math.random() * 9999)}`,
       spec: { ...cfg, type: typeName },
       hitbox: cfg.hitbox,
+      halfWidth: halfW,
+      colliderHeight: colH,
+      basePos,
+      velocityY: 0,
+      onGround: true,
+      jumpCooldown: 0,
+      stuckCheckTimer: 0,
+      stuckDuration: 0,
+      lastStuckCheckPos: { x: basePos.x, z: basePos.z },
+      sidestepTimer: 0,
+      strafeDir: Math.random() < 0.5 ? 1 : -1,
       reachY: cfg.reachY ?? 1.0,
       group: rig.group,
       bodyMat: rig.bodyMat,
@@ -680,6 +734,39 @@ export class PassiveMobManager {
       attackController,
       nightCombat,
     };
+  }
+
+  /**
+   * Part B3.4 — When the player places a block at (bx, by, bz), push any overlapping mob
+   * up or aside so no mob is ever trapped inside a player-placed block.
+   */
+  pushMobsOutOfBlock(bx, by, bz) {
+    let pushedCount = 0;
+    for (const mob of this.mobs) {
+      if (!mob || mob.hp <= 0) continue;
+      const pos = mob.basePos || mob.group.position;
+      if (
+        Math.abs(pos.x - bx) <= 1.8 &&
+        Math.abs(pos.y - by) <= 2.5 &&
+        Math.abs(pos.z - bz) <= 1.8
+      ) {
+        if (
+          pushEntityOutOfBlocks(
+            this.world,
+            pos,
+            mob.halfWidth || 0.38,
+            mob.colliderHeight || 1.2
+          )
+        ) {
+          mob.group.position.x = pos.x;
+          mob.group.position.y = pos.y;
+          mob.group.position.z = pos.z;
+          mob.velocityY = 0;
+          pushedCount++;
+        }
+      }
+    }
+    return pushedCount;
   }
 
   /**
@@ -1217,13 +1304,41 @@ export class PassiveMobManager {
         }
       }
 
+      if (!mob.basePos) {
+        mob.basePos = {
+          x: mob.group.position.x,
+          y: mob.group.position.y,
+          z: mob.group.position.z,
+        };
+      }
+
+      // Part B3.4: Unloaded-chunk freeze! If the chunk under the mob isn't loaded yet,
+      // skip gravity and movement so it never falls through the world or gets buried.
+      if (!isChunkLoadedAt(this.world, mob.basePos.x, mob.basePos.z)) {
+        mob.velocityY = 0;
+        continue;
+      }
+
+      // Tick jump cooldown and sidestep timer
+      if (mob.jumpCooldown > 0) {
+        mob.jumpCooldown = Math.max(0, mob.jumpCooldown - deltaTime);
+      }
+      if (mob.sidestepTimer > 0) {
+        mob.sidestepTimer = Math.max(0, mob.sidestepTimer - deltaTime);
+      }
+
       // Movement execution with burning panic (+20% speed) & FleshGhoul Charge (x1.6)
       let moveX = 0;
       let moveZ = 0;
       const burnSpeedMult = mob.burning ? 1.2 : 1.0; // Section 7.3: +20% panic speed while burning
       const spd = mob.spec.speed * burnSpeedMult;
 
-      if (mob.state === 'ChargeRush') {
+      if (mob.sidestepTimer > 0) {
+        // Stage 3 Unstuck Sidestep: move perpendicular to obstacle
+        const perpYaw = mob.yaw + (mob.strafeDir || 1) * (Math.PI * 0.5);
+        moveX = Math.sin(perpYaw) * spd;
+        moveZ = Math.cos(perpYaw) * spd;
+      } else if (mob.state === 'ChargeRush') {
         moveX = Math.sin(mob.yaw) * spd * 1.6;
         moveZ = Math.cos(mob.yaw) * spd * 1.6;
       } else if (mob.state === 'SeekShade' || mob.state === 'Chase') {
@@ -1244,53 +1359,189 @@ export class PassiveMobManager {
         moveZ = Math.cos(mob.yaw) * spd * 0.75;
       }
 
-      const isMoving = Math.abs(moveX) > 0.01 || Math.abs(moveZ) > 0.01;
+      const moveLen = Math.hypot(moveX, moveZ);
+      let isMoving = moveLen > 0.01;
+      const halfW = mob.halfWidth || 0.38;
+      const colH = mob.colliderHeight || 1.2;
+
       if (isMoving) {
-        const nextX = mob.group.position.x + moveX * deltaTime;
-        const nextZ = mob.group.position.z + moveZ * deltaTime;
-        const blockAtTorso = this.world.getBlock(
-          Math.floor(nextX + 0.5),
-          Math.floor(mob.group.position.y + 0.6),
-          Math.floor(nextZ + 0.5)
-        );
-        const blockAboveLedge = this.world.getBlock(
-          Math.floor(nextX + 0.5),
-          Math.floor(mob.group.position.y + 1.6),
-          Math.floor(nextZ + 0.5)
-        );
-        // BloodCrawler can climb 1-block ledges automatically
+        const dirX = moveX / moveLen;
+        const dirZ = moveZ / moveLen;
+
+        // Part B3.2 — Cliff Avoidance: Passive wandering mobs never walk off drops > 3 blocks
         if (
-          !blockAtTorso ||
-          blockAtTorso === 'water' ||
-          (mob.spec.type === 'BloodCrawler' && !blockAboveLedge)
+          !wantsToFight &&
+          mob.onGround &&
+          isCliffDropAhead(
+            this.world,
+            mob.basePos.x,
+            mob.basePos.y,
+            mob.basePos.z,
+            dirX,
+            dirZ,
+            halfW,
+            3
+          )
         ) {
-          mob.group.position.x = nextX;
-          mob.group.position.z = nextZ;
+          mob.yaw += Math.PI * (0.75 + Math.random() * 0.5);
+          moveX = 0;
+          moveZ = 0;
+          isMoving = false;
+        } else {
+          // Part B3.2 — Auto-Jump 1-Block Obstacles vs Turn Away from 2+ Block Obstacles
+          const obs = evaluateObstacleAhead(
+            this.world,
+            mob.basePos.x,
+            mob.basePos.y,
+            mob.basePos.z,
+            dirX,
+            dirZ,
+            halfW,
+            colH
+          );
+
+          if (obs === 'jump_1block') {
+            if (mob.onGround && mob.jumpCooldown <= 0) {
+              mob.velocityY = AUTO_JUMP_IMPULSE;
+              mob.onGround = false;
+              mob.jumpCooldown = AUTO_JUMP_COOLDOWN;
+              // Small forward nudge while jumping so the mob lands cleanly on top of the 1-block step
+              moveX *= 1.2;
+              moveZ *= 1.2;
+            }
+          } else if (obs === 'blocked_tall') {
+            // Obstacle is 2+ blocks tall or has no headroom: DO NOT JUMP!
+            if (!wantsToFight) {
+              // Immediately turn 110–170 degrees away from the 2-block wall
+              mob.yaw +=
+                (Math.PI * 0.65 + Math.random() * 0.45) *
+                (mob.strafeDir || 1);
+              mob.timer = 2.0 + Math.random() * 1.5;
+              moveX = Math.sin(mob.yaw) * spd * 0.75;
+              moveZ = Math.cos(mob.yaw) * spd * 0.75;
+            } else if (mob.sidestepTimer <= 0) {
+              // Chasing mob steers sideways around the 2-block wall
+              const leftX = Math.cos(mob.yaw);
+              const leftZ = -Math.sin(mob.yaw);
+              const leftObs = evaluateObstacleAhead(
+                this.world,
+                mob.basePos.x,
+                mob.basePos.y,
+                mob.basePos.z,
+                leftX,
+                leftZ,
+                halfW,
+                colH
+              );
+              mob.strafeDir = leftObs === 'clear' ? 1 : -1;
+              mob.sidestepTimer = 0.85;
+            }
+          }
         }
+      }
+
+      // Part B3.1 — Shared Axis-Separated AABB Movement & Gravity / Water Buoyancy
+      moveEntityWithAABB(
+        this.world,
+        mob.basePos,
+        mob,
+        moveX * deltaTime,
+        moveZ * deltaTime,
+        deltaTime,
+        halfW,
+        colH
+      );
+
+      // Part B3.3 — 2 Hz Stuck Detection & 4-Stage Recovery Ladder
+      mob.stuckCheckTimer = (mob.stuckCheckTimer || 0) + deltaTime;
+      if (mob.stuckCheckTimer >= 0.5) {
+        const dtStuck = mob.stuckCheckTimer;
+        mob.stuckCheckTimer = 0;
+
+        if (isMoving) {
+          const movedDist = Math.hypot(
+            mob.basePos.x - (mob.lastStuckCheckPos?.x ?? mob.basePos.x),
+            mob.basePos.z - (mob.lastStuckCheckPos?.z ?? mob.basePos.z)
+          );
+          if (movedDist < 0.08) {
+            mob.stuckDuration = (mob.stuckDuration || 0) + dtStuck;
+
+            if (mob.stuckDuration >= 0.5 && mob.stuckDuration < 1.2) {
+              // Stage 1: Try a jump if grounded and obstacle ahead is 1 block
+              const dirX = Math.sin(mob.yaw);
+              const dirZ = Math.cos(mob.yaw);
+              const obs = evaluateObstacleAhead(
+                this.world,
+                mob.basePos.x,
+                mob.basePos.y,
+                mob.basePos.z,
+                dirX,
+                dirZ,
+                halfW,
+                colH
+              );
+              if (obs === 'jump_1block' && mob.onGround && mob.jumpCooldown <= 0) {
+                mob.velocityY = AUTO_JUMP_IMPULSE;
+                mob.onGround = false;
+                mob.jumpCooldown = AUTO_JUMP_COOLDOWN;
+              } else if (obs === 'blocked_tall') {
+                mob.yaw += Math.PI * 0.75 * (mob.strafeDir || 1);
+              }
+            } else if (mob.stuckDuration >= 1.2 && mob.stuckDuration < 2.5) {
+              // Stage 2: Pick a new random direction (turn 90 to 180 degrees) and wander target
+              const turnAngle =
+                (Math.PI * 0.5 + Math.random() * Math.PI * 0.5) *
+                (Math.random() < 0.5 ? 1 : -1);
+              mob.yaw += turnAngle;
+              mob.state = 'Wander';
+              mob.timer = 2.2;
+            } else if (mob.stuckDuration >= 2.5 && mob.stuckDuration < 4.0) {
+              // Stage 3: Find a path around by trying left and right steps
+              mob.strafeDir = -1 * (mob.strafeDir || 1);
+              mob.sidestepTimer = 1.1;
+            } else if (mob.stuckDuration >= 4.0) {
+              // Stage 4: Final safety fallback — push out of solid blocks / free air space
+              pushEntityOutOfBlocks(this.world, mob.basePos, halfW, colH);
+              mob.yaw += Math.PI;
+              mob.stuckDuration = 0;
+            }
+          } else {
+            mob.stuckDuration = 0;
+          }
+        } else {
+          // Even when idle, ensure mob is never buried inside a solid block
+          pushEntityOutOfBlocks(this.world, mob.basePos, halfW, colH);
+          mob.stuckDuration = 0;
+        }
+
+        mob.lastStuckCheckPos = { x: mob.basePos.x, z: mob.basePos.z };
+      }
+
+      if (isMoving) {
         mob.animPhase += deltaTime * 8.5;
       } else {
         mob.animPhase += deltaTime * 2.5;
       }
 
-      const groundY = this.world.getSurfaceHeight(
-        mob.group.position.x,
-        mob.group.position.z
-      );
-      let verticalOffset = 0.5;
+      // Sync visual mesh group position with physics basePos + floating/hopping bob
+      let bobOffset = 0;
       if (
         mob.spec.type === 'GrimWraith' ||
         mob.spec.type === 'Hexcaster'
       ) {
-        verticalOffset = 0.68 + Math.sin(mob.animPhase * 1.4) * 0.16;
+        bobOffset = 0.18 + Math.sin(mob.animPhase * 1.4) * 0.16;
       } else if (mob.spec.type === 'Bird' && isMoving) {
-        verticalOffset = 0.65 + Math.abs(Math.sin(mob.animPhase * 1.5)) * 0.25;
+        bobOffset = 0.15 + Math.abs(Math.sin(mob.animPhase * 1.5)) * 0.25;
       } else if (
         (mob.spec.type === 'Rabbit' || mob.spec.type === 'Monkey') &&
-        isMoving
+        isMoving &&
+        mob.onGround
       ) {
-        verticalOffset = 0.5 + Math.abs(Math.sin(mob.animPhase * 1.4)) * 0.24;
+        bobOffset = Math.abs(Math.sin(mob.animPhase * 1.4)) * 0.24;
       }
-      mob.group.position.y = groundY + verticalOffset;
+      mob.group.position.x = mob.basePos.x;
+      mob.group.position.y = mob.basePos.y + bobOffset;
+      mob.group.position.z = mob.basePos.z;
       mob.group.rotation.y = mob.yaw;
 
       // Procedural Limb / Telegraph Animation
@@ -1441,6 +1692,40 @@ export class PassiveMobManager {
         color: canAttack ? 0x22c55e : 0xef4444,
       });
       this.debugGroup.add(new THREE.Line(lineGeo, lineMat));
+
+      // 4. Part B4: Overhead Telemetry Sprite (State | Stuck | JumpCD | Grounded)
+      if (typeof document !== 'undefined') {
+        const canvas = document.createElement('canvas');
+        canvas.width = 384;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.strokeStyle = mob.stuckDuration > 0.5 ? '#f97316' : '#38bdf8';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
+          ctx.font = 'bold 20px monospace';
+          ctx.fillStyle = '#f8fafc';
+          ctx.textAlign = 'center';
+          const labelLine1 = `${mob.spec.type} [${mob.state}] (${mob.hp}/${mob.maxHp}HP)`;
+          const labelLine2 = `Stuck:${(mob.stuckDuration || 0).toFixed(1)}s | JumpCD:${(mob.jumpCooldown || 0).toFixed(1)}s | Gnd:${mob.onGround ? 'YES' : 'AIR'}`;
+          ctx.fillText(labelLine1, canvas.width * 0.5, 25);
+          ctx.fillStyle = mob.stuckDuration > 0.5 ? '#fde047' : '#86efac';
+          ctx.fillText(labelLine2, canvas.width * 0.5, 50);
+
+          const tex = new THREE.CanvasTexture(canvas);
+          const spriteMat = new THREE.SpriteMaterial({
+            map: tex,
+            transparent: true,
+            depthTest: false,
+          });
+          const sprite = new THREE.Sprite(spriteMat);
+          sprite.position.set(cx, aabb.maxY + 0.65, cz);
+          sprite.scale.set(2.8, 0.48, 1);
+          this.debugGroup.add(sprite);
+        }
+      }
     }
   }
 }

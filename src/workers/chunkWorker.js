@@ -1,4 +1,4 @@
-import { SeededSimplexNoise, WORLD_MAX_Y } from '../noise.js';
+import { SeededSimplexNoise, WORLD_MAX_Y, getBiome } from '../noise.js';
 import { BLOCK_BY_ID } from '../blocks.js';
 
 // ============================================================================
@@ -31,10 +31,12 @@ self.onmessage = (event) => {
   const blocks = new Map();
 
   // 1. Generate chunk column blocks up to WORLD_MAX_Y
+  // Part A3.1: Call getBiome(wx, wz, seed) and getSurfaceHeight(wx, wz) ONCE per column (x, z)
   for (let lx = 0; lx < CHUNK_SIZE; lx++) {
     const wx = startX + lx;
     for (let lz = 0; lz < CHUNK_SIZE; lz++) {
       const wz = startZ + lz;
+      const biome = getBiome(wx, wz, seed);
       const surfaceY = noise.getSurfaceHeight(wx, wz);
       const maxColY = Math.min(WORLD_MAX_Y, Math.max(surfaceY + 6, 22));
 
@@ -45,7 +47,13 @@ self.onmessage = (event) => {
           if (modVal) blocks.set(key, modVal);
           continue;
         }
-        const naturalType = noise.getNaturalBlockAt(wx, wy, wz);
+        const naturalType = noise.getColumnBlockAt(
+          wx,
+          wy,
+          wz,
+          surfaceY,
+          biome
+        );
         if (naturalType) {
           blocks.set(key, naturalType);
         }

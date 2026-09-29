@@ -18,7 +18,7 @@ import {
   PassiveMobManager,
   BlockBreakParticles,
 } from './polish.js';
-import { TERRAIN_CONFIG, SEA_LEVEL } from './noise.js';
+import { TERRAIN_CONFIG, SEA_LEVEL, getBiome, BIOME_TABLE } from './noise.js';
 
 // ============================================================================
 // Voxel Realms v2.0 — Complete Upgrade Suite (Phases U0–U7)
@@ -538,7 +538,104 @@ function executeConsoleCommand(cmdStr) {
   } else if (cmd === 'killmobs') {
     const killedCount = mobs.killAllHostileMobs();
     showToast(`Killed ${killedCount} hostile & summoned mobs!`);
+  } else if (cmd === 'biome') {
+    const px = Math.round(controls.playerPosition.x);
+    const pz = Math.round(controls.playerPosition.z);
+    const b = getBiome(px, pz, world.seed);
+    const surfY = world.getSurfaceHeight(px, pz);
+    showToast(
+      `[Biome @ (${px}, ${pz})] ${b.name} (${b.id}) | Surface: ${b.surface} | Sub: ${b.sub} | Floor: ${b.underwaterFloor} | Y=${surfY}`,
+      6000
+    );
+  } else if (cmd === 'biomemap') {
+    toggleBiomeMapOverlay();
   }
+}
+
+// Part A4: Top-down 2D Biome Map Overlay (/biomemap)
+let biomeMapOverlayEl = null;
+function toggleBiomeMapOverlay() {
+  if (!biomeMapOverlayEl) {
+    biomeMapOverlayEl = document.createElement('div');
+    biomeMapOverlayEl.id = 'biome-map-overlay';
+    Object.assign(biomeMapOverlayEl.style, {
+      position: 'fixed',
+      top: '70px',
+      right: '18px',
+      padding: '10px',
+      background: 'rgba(15, 23, 42, 0.92)',
+      border: '2px solid #38bdf8',
+      borderRadius: '10px',
+      color: '#f8fafc',
+      fontFamily: 'monospace',
+      fontSize: '11px',
+      zIndex: '40',
+      display: 'none',
+    });
+    const title = document.createElement('div');
+    title.style.fontWeight = 'bold';
+    title.style.marginBottom = '6px';
+    title.textContent = '🗺️ BIOME REGION MAP (480×480m)';
+    biomeMapOverlayEl.appendChild(title);
+
+    const canvas = document.createElement('canvas');
+    canvas.id = 'biome-map-canvas';
+    canvas.width = 160;
+    canvas.height = 160;
+    canvas.style.border = '1px solid #475569';
+    canvas.style.display = 'block';
+    biomeMapOverlayEl.appendChild(canvas);
+
+    const legend = document.createElement('div');
+    legend.style.marginTop = '6px';
+    legend.style.display = 'grid';
+    legend.style.gridTemplateColumns = '1fr 1fr';
+    legend.style.gap = '2px 8px';
+    for (const b of Object.values(BIOME_TABLE)) {
+      const item = document.createElement('div');
+      item.innerHTML = `<span style="display:inline-block;width:9px;height:9px;background:${b.mapColor};margin-right:4px;border:1px solid #000"></span>${b.name.split(' ').pop()}`;
+      legend.appendChild(item);
+    }
+    biomeMapOverlayEl.appendChild(legend);
+    document.body.appendChild(biomeMapOverlayEl);
+  }
+
+  const isVisible = biomeMapOverlayEl.style.display === 'block';
+  if (isVisible) {
+    biomeMapOverlayEl.style.display = 'none';
+    showToast('Biome Map: OFF');
+    return;
+  }
+
+  biomeMapOverlayEl.style.display = 'block';
+  renderBiomeMapCanvas();
+  showToast('Biome Map: ON (Showing 480×480m region around player)');
+}
+
+function renderBiomeMapCanvas() {
+  if (!biomeMapOverlayEl || biomeMapOverlayEl.style.display !== 'block') return;
+  const canvas = document.getElementById('biome-map-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const px = Math.round(controls.playerPosition.x);
+  const pz = Math.round(controls.playerPosition.z);
+  const step = 3; // 160 * 3 = 480 blocks across
+  const half = (canvas.width * step) / 2;
+
+  for (let cy = 0; cy < canvas.height; cy += 2) {
+    for (let cx = 0; cx < canvas.width; cx += 2) {
+      const wx = px - half + cx * step;
+      const wz = pz - half + cy * step;
+      const b = getBiome(wx, wz, world.seed);
+      ctx.fillStyle = b.mapColor || '#4ade80';
+      ctx.fillRect(cx, cy, 2, 2);
+    }
+  }
+  // Player crosshair marker in center
+  ctx.fillStyle = '#ef4444';
+  ctx.fillRect(canvas.width / 2 - 2, canvas.height / 2 - 2, 5, 5);
+  ctx.strokeStyle = '#ffffff';
+  ctx.strokeRect(canvas.width / 2 - 3, canvas.height / 2 - 3, 7, 7);
 }
 
 // Wire Pause Menu Buttons
@@ -639,6 +736,8 @@ renderer.domElement.addEventListener('mousedown', (event) => {
         const placedType = inventory.consumeHotbarSlot(ui.selectedIndex);
         if (placedType) {
           world.setBlock(adjX, adjY, adjZ, placedType);
+          // Part B3.4: If a block is placed overlapping a mob's box, push the mob out immediately
+          mobs.pushMobsOutOfBlock(adjX, adjY, adjZ);
           sfx.playPlace();
         }
       }
@@ -756,6 +855,7 @@ function animate() {
     const biomeName = world.getBiomeNameAt(x, z);
 
     if (biomePillEl) biomePillEl.textContent = `Biome: ${biomeName}`;
+    renderBiomeMapCanvas();
     if (fpsEl) fpsEl.textContent = `${currentFps} (${frameMs}ms)`;
     if (drawCallsEl) {
       drawCallsEl.textContent = String(renderer.info.render.calls);

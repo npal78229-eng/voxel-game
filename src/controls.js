@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { isBoxColliding } from './collision.js';
 
 // ============================================================================
 // Phase U0.3 — Player AABB Physics (0.6x1.8 Collider, Axis-Separated X/Y/Z
@@ -192,28 +193,19 @@ export class FirstPersonController {
 
   /**
    * Checks if the player's 0.6 x 1.8 AABB at eye position (px, py, pz) intersects any solid voxel.
+   * Reuses shared isBoxColliding helper from src/collision.js (Part B3.1).
    */
   _collidesAt(px, py, pz) {
     if (!this.world) return false;
-
     const feetY = py - this.eyeHeight;
-    const minX = Math.floor(px - this.halfWidth + 0.5);
-    const maxX = Math.floor(px + this.halfWidth - 0.001 + 0.5);
-    const minY = Math.floor(feetY + 0.5);
-    const maxY = Math.floor(feetY + this.colliderHeight - 0.02 + 0.5);
-    const minZ = Math.floor(pz - this.halfWidth + 0.5);
-    const maxZ = Math.floor(pz + this.halfWidth - 0.001 + 0.5);
-
-    for (let bx = minX; bx <= maxX; bx++) {
-      for (let by = minY; by <= maxY; by++) {
-        for (let bz = minZ; bz <= maxZ; bz++) {
-          if (this.world.isSolidAt(bx, by, bz)) {
-            return true;
-          }
-        }
-      }
-    }
-    return false;
+    return isBoxColliding(
+      this.world,
+      px,
+      feetY,
+      pz,
+      this.halfWidth,
+      this.colliderHeight
+    );
   }
 
   _applyCameraTransform() {

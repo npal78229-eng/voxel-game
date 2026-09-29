@@ -200,48 +200,42 @@ export class SeededSimplexNoise {
   }
 
   /**
-   * Phase U3.2 — Computes temperature, humidity, continentalness & biome at world (wx, wz).
+   * Part A3.1 & A3.2 — Large organic biome regions (~200-260 block feature size)
+   * driven by two low-frequency domain-warped noise fields: temperature and moisture.
    */
   getBiomeAt(wx, wz) {
-    const temp = this.noise2D(wx * 0.0045 + 120, wz * 0.0045 + 120); // [-1, 1]
-    const humid = this.noise2D(wx * 0.0045 - 240, wz * 0.0045 - 240); // [-1, 1]
-    const cont = this.noise2D(wx * 0.007, wz * 0.007);
-    const ridge = 1.0 - Math.abs(this.noise2D(wx * 0.012 + 50, wz * 0.012 - 50));
+    // Organic domain warp (~26 block amplitude) so region borders wiggle naturally
+    const warpX = this.noise2D(wx * 0.0085 + 73.1, wz * 0.0085 - 41.7) * 26.0;
+    const warpZ = this.noise2D(wx * 0.0085 - 91.3, wz * 0.0085 + 59.9) * 26.0;
+    const sx = wx + warpX;
+    const sz = wz + warpZ;
 
-    if (cont < -0.36) {
-      return { id: 'ocean', name: 'Sapphire Sea', surface: 'sand', sub: 'sand', treeChance: 0 };
+    // Low-frequency temperature & moisture (feature size ~220 blocks -> zero 5-block specks)
+    const temp = this.noise2D(sx * 0.0024 + 120, sz * 0.0024 + 120); // [-1, 1]
+    const moisture = this.noise2D(sx * 0.0024 - 240, sz * 0.0024 - 240); // [-1, 1]
+
+    // Map (temp, moisture) to the 10 canonical biomes in BIOME_TABLE
+    if (temp < -0.45) {
+      return moisture < -0.05 ? BIOME_TABLE.tundra : BIOME_TABLE.taiga;
     }
-    if (cont < -0.24) {
-      return { id: 'beach', name: 'Sunlit Shore', surface: 'sand', sub: 'sand', treeChance: 0 };
+    if (temp < -0.15) {
+      if (moisture < -0.22) return BIOME_TABLE.mountains;
+      if (moisture > 0.25) return BIOME_TABLE.taiga;
+      return BIOME_TABLE.birch_forest;
     }
-    if (ridge > 0.78 && cont > 0.15) {
-      return {
-        id: 'mountains',
-        name: 'Craggy Alpine Peaks',
-        surface: temp < 0 ? 'snow' : 'stone',
-        sub: 'stone',
-        treeChance: 0.004,
-      };
+    if (temp < 0.22) {
+      if (moisture < -0.38) return BIOME_TABLE.ocean;
+      if (moisture < 0.0) return BIOME_TABLE.plains;
+      if (moisture < 0.32) return BIOME_TABLE.forest;
+      return BIOME_TABLE.birch_forest;
     }
-    if (temp < -0.35) {
-      return humid > 0
-        ? { id: 'taiga', name: 'Boreal Pine Taiga', surface: 'snow', sub: 'dirt', treeChance: 0.022 }
-        : { id: 'tundra', name: 'Frostbound Tundra', surface: 'snow', sub: 'dirt', treeChance: 0.003 };
+    if (temp < 0.48) {
+      if (moisture < -0.25) return BIOME_TABLE.savanna;
+      if (moisture > 0.22) return BIOME_TABLE.swamp;
+      return BIOME_TABLE.plains;
     }
-    if (temp > 0.38) {
-      return humid < -0.1
-        ? { id: 'desert', name: 'Golden Dunes', surface: 'sand', sub: 'sand', treeChance: 0.006 }
-        : { id: 'savanna', name: 'Sunscorched Savanna', surface: 'grass', sub: 'dirt', treeChance: 0.01 };
-    }
-    if (humid > 0.35) {
-      return temp > 0.05
-        ? { id: 'swamp', name: 'Misty Fenland', surface: 'grass', sub: 'dirt', treeChance: 0.016 }
-        : { id: 'birch_forest', name: 'Silver Birch Grove', surface: 'grass', sub: 'dirt', treeChance: 0.026 };
-    }
-    if (humid > 0.02) {
-      return { id: 'forest', name: 'Timberland Woods', surface: 'grass', sub: 'dirt', treeChance: 0.028 };
-    }
-    return { id: 'plains', name: 'Verdant Meadows', surface: 'grass', sub: 'dirt', treeChance: 0.007 };
+    // Hot region (temp >= 0.48)
+    return moisture < 0.08 ? BIOME_TABLE.desert : BIOME_TABLE.savanna;
   }
 
   fbm2D(wx, wz) {
@@ -261,10 +255,40 @@ export class SeededSimplexNoise {
     return Math.max(0, Math.min(1, normalized));
   }
 
+  /**
+   * Part A3.4 — Smooth Height Borders:
+   * Evaluates biome baseHeight and roughness on a 16-block grid and interpolates them
+   * with C1-continuous smoothstep (3t^2 - 2t^3), guaranteeing zero wall-like cliffs
+   * across biome borders while surface block types change sharply at the exact border.
+   */
   getSurfaceHeight(wx, wz) {
-    const h = this.fbm2D(wx, wz);
-    const ridge = Math.max(0, 1.0 - Math.abs(this.noise2D(wx * 0.011, wz * 0.011)) - 0.5) * 18;
-    return Math.round(TERRAIN_CONFIG.baseHeight + h * TERRAIN_CONFIG.amplitude + ridge);
+    const grid = 16.0;
+    const x0 = Math.floor(wx / grid) * grid;
+    const z0 = Math.floor(wz / grid) * grid;
+    const x1 = x0 + grid;
+    const z1 = z0 + grid;
+
+    const tx = (wx - x0) / grid;
+    const tz = (wz - z0) / grid;
+    const sx = tx * tx * (3.0 - 2.0 * tx);
+    const sz = tz * tz * (3.0 - 2.0 * tz);
+
+    const b00 = this.getBiomeAt(x0, z0);
+    const b10 = this.getBiomeAt(x1, z0);
+    const b01 = this.getBiomeAt(x0, z1);
+    const b11 = this.getBiomeAt(x1, z1);
+
+    const base0 = b00.baseHeight * (1 - sx) + b10.baseHeight * sx;
+    const base1 = b01.baseHeight * (1 - sx) + b11.baseHeight * sx;
+    const blendedBase = base0 * (1 - sz) + base1 * sz;
+
+    const rough0 = b00.roughness * (1 - sx) + b10.roughness * sx;
+    const rough1 = b01.roughness * (1 - sx) + b11.roughness * sx;
+    const blendedRough = rough0 * (1 - sz) + rough1 * sz;
+
+    const h = this.fbm2D(wx, wz) - 0.5; // [-0.5, 0.5]
+    const detail = this.noise2D(wx * 0.035, wz * 0.035) * 1.1;
+    return Math.max(4, Math.round(blendedBase + h * blendedRough * 2.1 + detail));
   }
 
   isCaveVoid(wx, wy, wz, surfaceY, biomeId = 'plains') {
@@ -281,15 +305,23 @@ export class SeededSimplexNoise {
     return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
   }
 
+  /**
+   * Part A3.6 & A3.7 — Cross-chunk deterministic tree root check.
+   * Always uses the biome of the trunk position (tx, tz) so canopies crossing
+   * chunk or biome boundaries never split into two tree species.
+   */
   _hasTreeRootAt(tx, tz) {
-    const surfaceY = this.getSurfaceHeight(tx, tz);
-    if (surfaceY <= SEA_LEVEL + 1 || surfaceY > 42) return null;
-    const biome = this.getBiomeAt(tx, tz);
-    if (biome.treeChance <= 0) return null;
-
     if ((tx & 3) !== 0 || (tz & 3) !== 0) return null;
+    const biome = this.getBiomeAt(tx, tz);
+    if (!biome.treeType || biome.treeChance <= 0) return null;
+
+    const surfaceY = this.getSurfaceHeight(tx, tz);
+    // No trees underwater or above the Alpine snow line
+    if (surfaceY <= SEA_LEVEL) return null;
+    if (biome.snowLineY && surfaceY >= biome.snowLineY) return null;
+
     if (this._hash2(tx, tz) < biome.treeChance * 4) {
-      return { surfaceY, biomeId: biome.id };
+      return { surfaceY, biomeId: biome.id, treeType: biome.treeType };
     }
     return null;
   }
@@ -310,16 +342,13 @@ export class SeededSimplexNoise {
         const relY = wy - tree.surfaceY;
         if (relY < 1 || relY > 6) continue;
 
-        if (tree.biomeId === 'desert') {
+        if (tree.treeType === 'cactus') {
           if (dx === 0 && dz === 0 && relY <= 3) return 'cactus';
           continue;
         }
 
-        const isBirch = tree.biomeId === 'birch_forest';
-        const isPine =
-          tree.biomeId === 'taiga' ||
-          tree.biomeId === 'tundra' ||
-          tree.biomeId === 'mountains';
+        const isBirch = tree.treeType === 'birch';
+        const isPine = tree.treeType === 'pine';
         const logType = isBirch ? 'birch_wood' : isPine ? 'pine_log' : 'wood';
         const leafType = isBirch
           ? 'birch_leaves'
@@ -341,34 +370,17 @@ export class SeededSimplexNoise {
   }
 
   /**
-   * Returns the natural procedural block type at world coordinate (wx, wy, wz).
+   * Part A3.1 & A3.3 — Evaluates the block at (wx, wy, wz) using pre-computed column
+   * (surfaceY, biome) so chunkWorker only calls getBiomeAt/getSurfaceHeight ONCE per column.
    */
-  getNaturalBlockAt(wx, wy, wz) {
+  getColumnBlockAt(wx, wy, wz, surfaceY, biome) {
     if (wy < 0) return null;
     if (wy === 0) return 'bedrock';
 
-    const surfaceY = this.getSurfaceHeight(wx, wz);
-    const biome = this.getBiomeAt(wx, wz);
-
-    // Above solid ground: check water sea level, rare pumpkins/melons, or deterministic trees
+    // Above solid ground: water up to SEA_LEVEL (or tundra ice) and biome-matched trees
     if (wy > surfaceY) {
       if (wy <= SEA_LEVEL) {
         return biome.id === 'tundra' && wy === SEA_LEVEL ? 'ice' : 'water';
-      }
-      if (
-        wy === surfaceY + 1 &&
-        surfaceY > SEA_LEVEL + 1 &&
-        (wx & 15) === 7 &&
-        (wz & 15) === 7
-      ) {
-        const patchHash = this._hash2(wx + 31, wz - 17);
-        if (patchHash < 0.08 && biome.id === 'plains') return 'pumpkin';
-        if (
-          patchHash >= 0.08 &&
-          patchHash < 0.15 &&
-          (biome.id === 'swamp' || biome.id === 'forest')
-        )
-          return 'melon';
       }
       if (wy <= surfaceY + 6) {
         return this._getTreeBlockAt(wx, wy, wz);
@@ -376,7 +388,30 @@ export class SeededSimplexNoise {
       return null;
     }
 
-    // Task F4: Continuous 3D Spaghetti Tunnels, Cavern Chambers, Hillside Entrances & Lava Pools
+    // Strict Surface & Subsurface Biome Ownership (top 4 blocks: surfaceY down to surfaceY - 3)
+    // Caves and ores NEVER replace these top layers.
+    if (wy === surfaceY) {
+      if (surfaceY <= SEA_LEVEL) {
+        return biome.underwaterFloor;
+      }
+      if (biome.snowLineY && surfaceY >= biome.snowLineY) {
+        return 'snow';
+      }
+      return biome.surface;
+    }
+
+    if (wy >= surfaceY - 3) {
+      if (surfaceY <= SEA_LEVEL) {
+        return biome.underwaterFloor;
+      }
+      return biome.sub;
+    }
+
+    if (wy === surfaceY - 4) {
+      return biome.deepSub || biome.sub;
+    }
+
+    // Below subsurface (wy <= surfaceY - 5): Caves & Seeded Vein Ores
     const caveStatus = evaluateCaveAt(
       this,
       wx,
@@ -390,25 +425,10 @@ export class SeededSimplexNoise {
       return caveStatus === 'lava' ? 'lava' : null;
     }
 
-    // Surface & Subsurface Biome Blocks
-    if (wy === surfaceY) {
-      if (surfaceY <= SEA_LEVEL + 1) {
-        return this._hash2(wx, wz) < 0.28 ? 'gravel' : 'sand';
-      }
-      return biome.surface;
-    }
-    if (wy >= surfaceY - 2) {
-      if (surfaceY <= SEA_LEVEL + 1) return 'gravel';
-      if (biome.id === 'desert') return 'sandstone';
-      return biome.sub;
-    }
-
-    // Deep obsidian & mossy cobblestone near underground magma level
     if (wy <= 3 && this._hash2(wx + wy, wz - wy) < 0.14) {
       return wy <= 2 ? 'obsidian' : 'mossy_cobble';
     }
 
-    // Task F4: Deterministic Cross-Chunk Seeded Vein Ores + Cave Wall Exposure Bonus
     const isAdjacentToCave =
       evaluateCaveAt(this, wx + 1, wy, wz, surfaceY, SEA_LEVEL, biome.id) === 'air' ||
       evaluateCaveAt(this, wx - 1, wy, wz, surfaceY, SEA_LEVEL, biome.id) === 'air' ||
@@ -428,6 +448,176 @@ export class SeededSimplexNoise {
 
     return 'stone';
   }
+
+  /**
+   * Returns the natural procedural block type at world coordinate (wx, wy, wz).
+   */
+  getNaturalBlockAt(wx, wy, wz) {
+    if (wy < 0) return null;
+    if (wy === 0) return 'bedrock';
+    const surfaceY = this.getSurfaceHeight(wx, wz);
+    const biome = this.getBiomeAt(wx, wz);
+    return this.getColumnBlockAt(wx, wy, wz, surfaceY, biome);
+  }
+}
+
+export const BIOME_EDGE_BLEND = 0;
+
+/**
+ * Part A3.3 — Canonical 10-Biome Table.
+ * Every biome strictly owns its surface, subsurface (3–4 deep), and underwater floor blocks.
+ */
+export const BIOME_TABLE = {
+  plains: {
+    id: 'plains',
+    name: 'Verdant Meadows',
+    surface: 'grass',
+    sub: 'dirt',
+    deepSub: 'dirt',
+    underwaterFloor: 'sand',
+    baseHeight: 21,
+    roughness: 5.5,
+    treeType: 'oak',
+    treeChance: 0.005,
+    mapColor: '#4ade80',
+  },
+  forest: {
+    id: 'forest',
+    name: 'Timberland Woods',
+    surface: 'grass',
+    sub: 'dirt',
+    deepSub: 'dirt',
+    underwaterFloor: 'dirt',
+    baseHeight: 22,
+    roughness: 7.0,
+    treeType: 'oak',
+    treeChance: 0.025,
+    mapColor: '#16a34a',
+  },
+  birch_forest: {
+    id: 'birch_forest',
+    name: 'Silver Birch Grove',
+    surface: 'grass',
+    sub: 'dirt',
+    deepSub: 'dirt',
+    underwaterFloor: 'dirt',
+    baseHeight: 22,
+    roughness: 6.0,
+    treeType: 'birch',
+    treeChance: 0.024,
+    mapColor: '#86efac',
+  },
+  taiga: {
+    id: 'taiga',
+    name: 'Boreal Pine Taiga',
+    surface: 'grass',
+    sub: 'dirt',
+    deepSub: 'dirt',
+    underwaterFloor: 'gravel',
+    baseHeight: 23,
+    roughness: 8.0,
+    treeType: 'pine',
+    treeChance: 0.022,
+    mapColor: '#15803d',
+  },
+  tundra: {
+    id: 'tundra',
+    name: 'Frostbound Tundra',
+    surface: 'snow',
+    sub: 'dirt',
+    deepSub: 'dirt',
+    underwaterFloor: 'gravel',
+    baseHeight: 20,
+    roughness: 4.5,
+    treeType: 'pine',
+    treeChance: 0.002,
+    mapColor: '#e2e8f0',
+  },
+  desert: {
+    id: 'desert',
+    name: 'Golden Dunes',
+    surface: 'sand',
+    sub: 'sand',
+    deepSub: 'sandstone',
+    underwaterFloor: 'sand',
+    baseHeight: 21,
+    roughness: 5.5,
+    treeType: 'cactus',
+    treeChance: 0.006,
+    mapColor: '#facc15',
+  },
+  savanna: {
+    id: 'savanna',
+    name: 'Sunscorched Savanna',
+    surface: 'grass',
+    sub: 'dirt',
+    deepSub: 'dirt',
+    underwaterFloor: 'sand',
+    baseHeight: 21,
+    roughness: 4.5,
+    treeType: 'oak',
+    treeChance: 0.008,
+    mapColor: '#a3e635',
+  },
+  mountains: {
+    id: 'mountains',
+    name: 'Craggy Alpine Peaks',
+    surface: 'stone',
+    sub: 'stone',
+    deepSub: 'stone',
+    underwaterFloor: 'gravel',
+    snowLineY: 38,
+    baseHeight: 30,
+    roughness: 14.5,
+    treeType: 'pine',
+    treeChance: 0.003,
+    mapColor: '#94a3b8',
+  },
+  swamp: {
+    id: 'swamp',
+    name: 'Misty Fenland',
+    surface: 'grass',
+    sub: 'dirt',
+    deepSub: 'dirt',
+    underwaterFloor: 'dirt',
+    baseHeight: 19,
+    roughness: 3.5,
+    treeType: 'oak',
+    treeChance: 0.015,
+    mapColor: '#0d9488',
+  },
+  ocean: {
+    id: 'ocean',
+    name: 'Sapphire Sea',
+    surface: 'sand',
+    sub: 'sand',
+    deepSub: 'sandstone',
+    underwaterFloor: 'sand',
+    baseHeight: 13,
+    roughness: 3.0,
+    treeType: null,
+    treeChance: 0,
+    mapColor: '#0284c7',
+  },
+};
+
+const _biomeNoiseCache = new Map();
+function _getNoiseForSeed(seed = TERRAIN_CONFIG.seed) {
+  let n = _biomeNoiseCache.get(seed);
+  if (!n) {
+    n = new SeededSimplexNoise(seed);
+    _biomeNoiseCache.set(seed, n);
+  }
+  return n;
+}
+
+/**
+ * Part A3.1 — One biome lookup function, world coordinates only:
+ *   getBiome(wx, wz, seed) -> returns the biome entry from BIOME_TABLE.
+ */
+export function getBiome(wx, wz, seed = TERRAIN_CONFIG.seed) {
+  const noise = _getNoiseForSeed(seed);
+  return noise.getBiomeAt(wx, wz);
 }
 
 SeededSimplexNoise.GRAD3 = new Float32Array([

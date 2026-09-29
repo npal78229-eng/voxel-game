@@ -31,12 +31,14 @@ export function evaluateCaveAt(noise, wx, wy, wz, surfaceY, seaLevel = 18, biome
     }
   }
 
-  // 4. Surface Depth Rule: Stay below surface by at least minDepthBelowSurface (4 blocks),
-  //    EXCEPT for rare hillside entrances (surfaceY > seaLevel + 4).
+  // 4. Surface Depth Rule (Part A3.6): Keep at least 3 solid blocks under the top
+  //    so caves never punch holes in the surface biome pattern or expose stone on top.
   const depthBelowSurface = surfaceY - wy;
+  if (depthBelowSurface < 3) {
+    return null;
+  }
   if (depthBelowSurface < CAVE_CONFIG.minDepthBelowSurface) {
     if (surfaceY <= seaLevel + 4) return null;
-    // Check deterministic entrance noise field
     const entranceNoise = noise.noise2D(wx * 0.032 + 310, wz * 0.032 - 310);
     if (entranceNoise < 1.0 - CAVE_CONFIG.entranceChance * 9.0) {
       return null;

@@ -15,11 +15,18 @@ import {
 import { MOB_CONFIGS, getMobConfig } from '../src/config/mobs.js';
 import { SPAWN_CONFIG, isNightTime } from '../src/config/spawning.js';
 import { SAVE_WORLD_VERSION } from '../src/config/ores.js';
-import { SeededSimplexNoise } from '../src/noise.js';
+import { SeededSimplexNoise, getBiome, BIOME_TABLE, SEA_LEVEL } from '../src/noise.js';
 import { deserializeGameState } from '../src/storage.js';
 import { PlayerStatusEffects } from '../src/statusEffects.js';
 import { NIGHT_MOB_ATTACKS, NightMobCombatController } from '../src/mobAttacks.js';
 import { DaylightBurnSystem, MOB_BURN_RATES, isMobExposedToSun } from '../src/daylightBurn.js';
+import {
+  AUTO_JUMP_IMPULSE,
+  evaluateObstacleAhead,
+  isCliffDropAhead,
+  moveEntityWithAABB,
+  pushEntityOutOfBlocks,
+} from '../src/collision.js';
 
 console.log('====================================================================');
 console.log(' VOXEL REALMS — AUTOMATED QA SUITE (F1–F6 + NIGHT MOB COMBAT)');
@@ -569,6 +576,92 @@ check('N1.4 DaylightBurnSystem: Open-sky sun burn rates, shade protection & wate
   assert.equal(MOB_BURN_RATES.FleshGhoul, 1.5);
   assert.equal(MOB_BURN_RATES.GrimWraith, 1.0);
   return 'Open-sky raycast, roof shade protection & per-mob burn rates verified';
+});
+
+// ============================================================================
+// 7. PART A & PART B — 256x256 BIOME REGION PURITY & MOB AUTO-JUMP / UNSTUCK
+// ============================================================================
+console.log('\n--- PART A & PART B: 256x256 Biome Region Purity & Mob Auto-Jump ---');
+
+check('A4.1 256x256 Column Audit (65,536 columns): 100% top solid blocks match BIOME_TABLE with zero mixing', () => {
+  const seed = 133742;
+  const noise = new SeededSimplexNoise(seed);
+  let mismatches = 0;
+  let maxNeighborStep = 0;
+  let prevH = null;
+
+  for (let wx = 0; wx < 256; wx++) {
+    prevH = null;
+    for (let wz = 0; wz < 256; wz++) {
+      const biome = getBiome(wx, wz, seed);
+      const surfaceY = noise.getSurfaceHeight(wx, wz);
+      const topBlock = noise.getColumnBlockAt(wx, surfaceY, wz, surfaceY, biome);
+
+      let expected = biome.surface;
+      if (surfaceY <= SEA_LEVEL) {
+        expected = biome.underwaterFloor;
+      } else if (biome.snowLineY && surfaceY >= biome.snowLineY) {
+        expected = 'snow';
+      }
+
+      if (topBlock !== expected) {
+        mismatches++;
+      }
+
+      if (prevH !== null) {
+        const diff = Math.abs(surfaceY - prevH);
+        if (diff > maxNeighborStep) maxNeighborStep = diff;
+      }
+      prevH = surfaceY;
+    }
+  }
+
+  assert.equal(mismatches, 0, `Expected 0 surface block mismatches across 65,536 columns, got ${mismatches}`);
+  assert.ok(maxNeighborStep <= 4, `Smooth border height blending kept max 1m step to ${maxNeighborStep} blocks`);
+  return `65,536 columns verified: 0 mismatches (100% pure biome blocks) | Max 1m height delta = ${maxNeighborStep}`;
+});
+
+check('B4.1 Mob Auto-Jump (1-block wall jumped, 2-block wall turns away, cliff avoided, block-on-mob pushed out)', () => {
+  // Build a flat ground at y=10, a 1-block obstacle at (2, 11, 0), and a 2-block wall at (0, 11..12, 3)
+  const blocks = new Map();
+  for (let x = -4; x <= 6; x++) {
+    for (let z = -4; z <= 6; z++) {
+      blocks.set(`${x},10,${z}`, 'grass');
+    }
+  }
+  blocks.set('2,11,0', 'stone'); // 1-block wall ahead in +X
+  blocks.set('0,11,2', 'stone'); // 2-block wall ahead in +Z
+  blocks.set('0,12,2', 'stone');
+
+  const mockWorld = createMockWorld(blocks);
+
+  // 1. 1-block obstacle ahead (+X from x=1.10, just outside bx=2 [1.5..2.5]) -> 'jump_1block'
+  const obs1 = evaluateObstacleAhead(mockWorld, 1.1, 10.5, 0, 1, 0, 0.35, 1.1);
+  assert.equal(obs1, 'jump_1block');
+
+  // Simulate Pig jumping the 1-block wall at x=2
+  const pigPos = { x: 1.1, y: 10.5, z: 0 };
+  const pigState = { velocityY: AUTO_JUMP_IMPULSE, onGround: false };
+  for (let step = 0; step < 25; step++) {
+    moveEntityWithAABB(mockWorld, pigPos, pigState, 0.12, 0, 0.04, 0.35, 1.1);
+  }
+  assert.ok(pigPos.x > 2.8, `Pig cleared 1-block wall at x=2 and reached x=${pigPos.x.toFixed(2)}`);
+
+  // 2. 2-block wall ahead (+Z from z=1.10) -> 'blocked_tall' (do NOT jump)
+  const obs2 = evaluateObstacleAhead(mockWorld, 0, 10.5, 1.1, 0, 1, 0.35, 1.1);
+  assert.equal(obs2, 'blocked_tall');
+
+  // 3. Block placed directly inside mob at (0, 11, 0) -> pushEntityOutOfBlocks frees it
+  blocks.set('0,11,0', 'cobblestone');
+  const trappedPos = { x: 0, y: 10.5, z: 0 };
+  const pushed = pushEntityOutOfBlocks(mockWorld, trappedPos, 0.35, 1.1);
+  assert.equal(pushed, true);
+
+  // 4. Cliff drop check (> 3 blocks ahead at x=6)
+  const cliffAhead = isCliffDropAhead(mockWorld, 5.8, 10.5, 0, 1, 0, 0.35, 3);
+  assert.equal(cliffAhead, true);
+
+  return `1-block wall cleared (y=${pigPos.y.toFixed(1)}) | 2-block wall='blocked_tall' | Cliff detected | Buried mob pushed free`;
 });
 
 console.log('\n====================================================================');
