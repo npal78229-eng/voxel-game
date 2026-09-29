@@ -78,6 +78,7 @@ const character = new CharacterController(scene, camera);
 
 import { PLAYER_COMBAT_CONFIG } from './config/mobs.js';
 import { SAVE_WORLD_VERSION } from './config/ores.js';
+import { PlayerStatusEffects } from './statusEffects.js';
 
 // 8. PHASE U5 & U6 — WEB AUDIO SFX, 16-MOB ROSTER & BREAK PARTICLES
 const sfx = new SoundEffectsManager();
@@ -131,14 +132,20 @@ function renderSurvivalBars() {
 }
 renderSurvivalBars();
 
+// Night Mob Combat System: Player Status Effects Manager (poison, bleed, stagger, fear, weakness, drain)
+const statusEffects = new PlayerStatusEffects(playerStats, sfx, renderSurvivalBars);
+
 function applyPlayerDamage(amount, source = 'Hazard', options = {}) {
   // Task F1: Enforce player invulnerability window so one attack = at most 1 damage event
-  if (playerStats.invulnerableTimer > 0 && source !== 'Fall Damage') {
+  if (playerStats.invulnerableTimer > 0 && source !== 'Fall Damage' && !options.ignoreInvulnerability) {
     return false;
   }
   playerStats.invulnerableTimer = PLAYER_COMBAT_CONFIG.invulnerabilitySeconds;
   if (options.applySlowEffect) {
     playerStats.slowTimer = 2.0;
+  }
+  if (options.drainStamina) {
+    playerStats.hunger = 0;
   }
 
   playerStats.hp = Math.max(0, playerStats.hp - amount);
@@ -154,6 +161,7 @@ function applyPlayerDamage(amount, source = 'Hazard', options = {}) {
     showToast(`Defeated by ${source}! Respawning at surface...`);
     playerStats.hp = playerStats.maxHp;
     playerStats.hunger = playerStats.maxHunger;
+    statusEffects.clearAllEffects();
     setDefaultSpawn();
     controls.syncFromCamera();
     renderSurvivalBars();
@@ -499,8 +507,37 @@ function executeConsoleCommand(cmdStr) {
   } else if (cmd === 'heal') {
     playerStats.hp = 20;
     playerStats.hunger = 20;
+    statusEffects.clearAllEffects();
     renderSurvivalBars();
-    showToast('Restored full Health & Stamina');
+    showToast('Restored full Health, Stamina & cleared all Status Effects');
+  } else if (cmd === 'effect') {
+    const effectId = (parts[1] || 'poison').toLowerCase();
+    const duration = parts[2] !== undefined ? Number(parts[2]) : undefined;
+    const applied = statusEffects.applyEffect(effectId, duration);
+    showToast(
+      applied
+        ? `Applied status effect '${effectId}'${duration ? ` (${duration}s)` : ''}`
+        : `Effect '${effectId}' blocked (immune or invalid id)`
+    );
+  } else if (cmd === 'clearfx') {
+    statusEffects.clearAllEffects();
+    showToast('Cleared all active player status effects');
+  } else if (cmd === 'mobai') {
+    const state = (parts[1] || '').toLowerCase();
+    mobs.mobAiEnabled = state === 'off' ? false : state === 'on' ? true : !mobs.mobAiEnabled;
+    showToast(`Mob AI: ${mobs.mobAiEnabled ? 'ON' : 'OFF (Frozen for inspection)'}`);
+  } else if (cmd === 'mobdebug') {
+    const state = (parts[1] || '').toLowerCase();
+    const wantOn = state === 'on' ? true : state === 'off' ? false : !mobs.debugViewEnabled;
+    if (mobs.debugViewEnabled !== wantOn) {
+      mobs.toggleDebugView();
+    }
+    showToast(
+      `Mob Combat Debug: ${mobs.debugViewEnabled ? 'ON (Attack Range Rings + State Labels + Cooldowns)' : 'OFF'}`
+    );
+  } else if (cmd === 'killmobs') {
+    const killedCount = mobs.killAllHostileMobs();
+    showToast(`Killed ${killedCount} hostile & summoned mobs!`);
   }
 }
 
@@ -550,16 +587,23 @@ window.addEventListener('contextmenu', (event) => event.preventDefault());
 renderer.domElement.addEventListener('mousedown', (event) => {
   if (!controls.isLocked || inventory.isOpen || controls.paused) return;
 
+  if (event.button === 0 && !statusEffects.canPlayerAttack()) {
+    showToast('Staggered! Cannot attack.', 800);
+    return;
+  }
+
   character.triggerSwing();
   camera.getWorldDirection(lookDirection);
 
   if (event.button === 0) {
-    // 1. First test combat ray against nearby mobs (Phase U5.6)
+    // 1. First test combat ray against nearby mobs (Phase U5.6 + Weakness scaling)
     const isCrit = !controls.onGround && controls.velocityY < -1.5;
+    const baseDmg = isCrit ? 6 : 4;
+    const finalDmg = Math.max(1, Math.round(baseDmg * statusEffects.getMeleeDamageMultiplier()));
     const hitMob = mobs.tryAttackMob(
       controls.playerPosition,
       lookDirection,
-      isCrit ? 6 : 4
+      finalDmg
     );
     if (hitMob) {
       sfx.playAttackHit();
@@ -632,6 +676,14 @@ function animate() {
 
   updateLoadingProgress();
 
+  // Update Night Mob status effects (poison, bleed, stagger, fear, weakness, drain)
+  statusEffects.update(deltaTime);
+  controls.externalSpeedMultiplier =
+    statusEffects.getMovementSpeedMultiplier() *
+    (playerStats.slowTimer > 0 ? 0.55 : 1.0);
+  controls.allowSprint = statusEffects.canPlayerSprint();
+  controls.cameraShakeOffset = statusEffects.cameraShakeOffset;
+
   // 1. Update player physics & controls
   controls.update(deltaTime);
   const isMoving = controls.isMovingHorizontally();
@@ -674,8 +726,12 @@ function animate() {
     controls.playerPosition,
     dayNight.isNight(),
     (dmg, mobType, opts) => applyPlayerDamage(dmg, mobType, opts),
-    { x: 0, z: 0 },
-    lookDirection
+    controls.lastVelocity,
+    lookDirection,
+    statusEffects,
+    Boolean(inventory.isOpen || controls.paused),
+    dayNight.timeOfDay,
+    playerStats.hp
   );
   particles.update(deltaTime);
 

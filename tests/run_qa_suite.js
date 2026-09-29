@@ -17,9 +17,12 @@ import { SPAWN_CONFIG, isNightTime } from '../src/config/spawning.js';
 import { SAVE_WORLD_VERSION } from '../src/config/ores.js';
 import { SeededSimplexNoise } from '../src/noise.js';
 import { deserializeGameState } from '../src/storage.js';
+import { PlayerStatusEffects } from '../src/statusEffects.js';
+import { NIGHT_MOB_ATTACKS, NightMobCombatController } from '../src/mobAttacks.js';
+import { DaylightBurnSystem, MOB_BURN_RATES, isMobExposedToSun } from '../src/daylightBurn.js';
 
 console.log('====================================================================');
-console.log(' VOXEL REALMS — AUTOMATED QA SUITE (TASKS F1, F2, F3, F4, F5)');
+console.log(' VOXEL REALMS — AUTOMATED QA SUITE (F1–F6 + NIGHT MOB COMBAT)');
 console.log('====================================================================\n');
 
 let passed = 0;
@@ -401,6 +404,171 @@ check('F5.5 5-Seed Benchmark: Cave coverage %, Ore counts per 100 chunks & ms/ch
   console.table(seedSummaries);
   assert.equal(seedSummaries.length, 5);
   return `5 seeds verified | Avg generation time: ${msPerChunk} ms/chunk`;
+});
+
+// ============================================================================
+// 6. NIGHT MOB COMBAT SYSTEM — STATUS EFFECTS, 3-ATTACK AI & DAYLIGHT BURN
+// ============================================================================
+console.log('\n--- NIGHT MOB COMBAT SYSTEM: Status Effects, 3-Attack AI & Daylight Burn ---');
+
+check('N1.1 PlayerStatusEffects: Poison, Bleed, Stagger (0.8s + 3s immunity), Fear, Weakness & Soul Drain', () => {
+  const playerStats = { hp: 20, maxHp: 20, hunger: 20, maxHunger: 20 };
+  const fx = new PlayerStatusEffects(playerStats, null, null);
+
+  // 1. Stagger applies 0.8s and 3.0s immunity
+  assert.equal(fx.applyEffect('stagger'), true);
+  assert.equal(fx.canPlayerAttack(), false);
+  assert.equal(fx.canPlayerSprint(), false);
+  assert.equal(fx.getMovementSpeedMultiplier(), 0.2);
+  // Re-applying stagger during 3.0s immunity window must be blocked
+  assert.equal(fx.applyEffect('stagger'), false);
+
+  // Advance 1.0s so stagger expires (0.8s) while immunity remains (2.0s left)
+  fx.update(1.0);
+  assert.equal(fx.canPlayerAttack(), true);
+  assert.equal(fx.applyEffect('stagger'), false); // Still immune
+
+  // 2. Fear disables sprinting/natural regen + Weakness halves melee damage (0.5x)
+  fx.applyEffect('fear', 5.0);
+  fx.applyEffect('weakness', 8.0);
+  assert.equal(fx.canPlayerSprint(), false);
+  assert.equal(fx.canNaturalRegen(), false);
+  assert.equal(fx.getMeleeDamageMultiplier(), 0.5);
+
+  // 3. Soul Drain removes 50% current HP (min 1 HP)
+  fx.applyEffect('drain');
+  assert.equal(playerStats.hp, 10);
+
+  // 4. Poison ticks down to min 1 HP (non-lethal)
+  playerStats.hp = 2;
+  fx.applyEffect('poison', 4.0);
+  fx.update(1.6);
+  assert.equal(playerStats.hp, 1);
+  fx.update(1.6);
+  assert.equal(playerStats.hp, 1); // Never kills below 1 HP
+
+  fx.clearAllEffects();
+  assert.equal(fx.effects.size, 0);
+  return 'All 6 status effects, 3s Stagger immunity, non-lethal Poison & Soul Drain verified';
+});
+
+check('N1.2 Night Mobs (BloodCrawler, GrimWraith, ShadowStalker, FleshGhoul) each have 3 attacks & specs', () => {
+  assert.equal(MOB_CONFIGS.BloodCrawler.maxHp, 20);
+  assert.equal(MOB_CONFIGS.GrimWraith.maxHp, 30);
+  assert.equal(MOB_CONFIGS.ShadowStalker.maxHp, 40);
+  assert.equal(MOB_CONFIGS.FleshGhoul.maxHp, 50);
+  assert.equal(MOB_CONFIGS.Bonewalker.maxHp, 10);
+
+  for (const mobName of ['BloodCrawler', 'GrimWraith', 'ShadowStalker', 'FleshGhoul']) {
+    const attacks = NIGHT_MOB_ATTACKS[mobName];
+    assert.ok(Array.isArray(attacks), `${mobName} attacks array missing`);
+    assert.equal(attacks.length, 3, `${mobName} must have 3 attacks`);
+    for (const atk of attacks) {
+      assert.ok(atk.windup >= 0.4, `${mobName}.${atk.id} must have mandatory windup telegraph`);
+      assert.ok(atk.cooldown >= 2.0, `${mobName}.${atk.id} must have per-attack cooldown`);
+    }
+  }
+  return 'BloodCrawler(20HP), GrimWraith(30HP), ShadowStalker(40HP), FleshGhoul(50HP) -> 12 attacks verified';
+});
+
+check('N1.3 GrimWraith Soul Steal blocked by solid block in LOS & Skeletons crumble on Wraith death', () => {
+  const blockedWorld = createMockWorld(new Map([['0,11,3', 'stone']]));
+  const wraith = {
+    id: 99,
+    type: 'GrimWraith',
+    hp: 30,
+    maxHp: 30,
+    position: { x: 0, y: 10.5, z: 0 },
+    group: { position: { x: 0, y: 10.5, z: 0 }, scale: { y: 1 } },
+    hitbox: MOB_CONFIGS.GrimWraith.hitbox,
+    reachY: 2.0,
+    summoned: [],
+  };
+  const playerTarget = {
+    isPlayer: true,
+    position: { x: 0, y: 11.62, z: 6.0 },
+  };
+  const controller = new NightMobCombatController('GrimWraith');
+
+  const summoned = [];
+  const summonSkeletonsFn = (parentWraith, count) => {
+    for (let i = 0; i < count; i++) {
+      const skel = {
+        id: 200 + i,
+        type: 'Bonewalker',
+        hp: 10,
+        position: { x: 1, y: 10.5, z: 1 },
+        group: { position: { x: 1, y: 10.5, z: 1 } },
+      };
+      summoned.push(skel);
+      parentWraith.summoned.push(skel);
+    }
+    return summoned;
+  };
+
+  // Trigger summon_skeletons
+  const summonSpec = NIGHT_MOB_ATTACKS.GrimWraith.find((a) => a.id === 'summon_skeletons');
+  controller.startWindup(wraith, summonSpec, null, null);
+  controller.update(
+    1.6,
+    wraith,
+    playerTarget,
+    blockedWorld,
+    null,
+    null,
+    null,
+    summonSkeletonsFn,
+    null
+  );
+  assert.ok(summoned.length >= 2 && summoned.length <= 3);
+
+  // Trigger soul_steal behind solid stone wall at (0, 11, 3) -> should deal 0 drain
+  let drained = false;
+  const mockStatus = {
+    applyEffect: (id) => {
+      if (id === 'drain') drained = true;
+    },
+    hasEffect: () => false,
+    showWarningBanner: () => {},
+  };
+  const soulSpec = NIGHT_MOB_ATTACKS.GrimWraith.find((a) => a.id === 'soul_steal');
+  controller.globalDelayTimer = 0;
+  controller.startWindup(wraith, soulSpec, mockStatus, null);
+  controller.update(
+    1.6,
+    wraith,
+    playerTarget,
+    blockedWorld,
+    null,
+    mockStatus,
+    null,
+    summonSkeletonsFn,
+    null
+  );
+  assert.equal(drained, false, 'Soul Steal must be blocked when player hides behind a block');
+
+  // Sunlight kills parent Wraith -> all summoned Bonewalkers crumble (hp === 0)
+  const openSunWorld = createMockWorld(new Map());
+  const burnSys = new DaylightBurnSystem(openSunWorld, null);
+  wraith.hp = 0.2;
+  burnSys.update(0.6, [wraith, ...summoned], 0.25, false, playerTarget.position);
+  assert.equal(wraith.hp, 0);
+  assert.equal(summoned.every((s) => s.hp === 0), true);
+  return 'Soul Steal blocked by cover & summoned Bonewalker skeletons crumbled on Wraith death';
+});
+
+check('N1.4 DaylightBurnSystem: Open-sky sun burn rates, shade protection & water extinguish', () => {
+  // Roof at (5, 15, 0) provides shade; (0, 10, 0) has open sky
+  const worldWithRoof = createMockWorld(new Map([['5,15,0', 'stone']]));
+
+  assert.equal(isMobExposedToSun(worldWithRoof, 0, 10.5, 0), true);
+  assert.equal(isMobExposedToSun(worldWithRoof, 5, 10.5, 0), false);
+  assert.equal(MOB_BURN_RATES.BloodCrawler, 3.0);
+  assert.equal(MOB_BURN_RATES.Bonewalker, 4.0);
+  assert.equal(MOB_BURN_RATES.ShadowStalker, 2.0);
+  assert.equal(MOB_BURN_RATES.FleshGhoul, 1.5);
+  assert.equal(MOB_BURN_RATES.GrimWraith, 1.0);
+  return 'Open-sky raycast, roof shade protection & per-mob burn rates verified';
 });
 
 console.log('\n====================================================================');

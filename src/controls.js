@@ -59,6 +59,12 @@ export class FirstPersonController {
     this.isThirdPerson = false;
     this.cameraModeIndex = 0; // 0: 1st-Person, 1: 3rd-Person Back, 2: 3rd-Person Front
 
+    // Status Effects & Combat telemetry hooks
+    this.externalSpeedMultiplier = 1.0;
+    this.allowSprint = true;
+    this.cameraShakeOffset = { x: 0, y: 0 };
+    this.lastVelocity = { x: 0, z: 0 };
+
     this._bindEvents();
   }
 
@@ -95,6 +101,7 @@ export class FirstPersonController {
 
   isSprinting() {
     return (
+      this.allowSprint &&
       this.isMovingHorizontally() &&
       Boolean(this.keys.ControlLeft || (!this.isFlyMode && this.keys.ShiftLeft))
     );
@@ -254,6 +261,11 @@ export class FirstPersonController {
         this.playerPosition.z
       );
     }
+
+    if (this.cameraShakeOffset && (this.cameraShakeOffset.x !== 0 || this.cameraShakeOffset.y !== 0)) {
+      this.camera.position.x += this.cameraShakeOffset.x;
+      this.camera.position.y += this.cameraShakeOffset.y;
+    }
   }
 
   update(deltaTime) {
@@ -292,15 +304,21 @@ export class FirstPersonController {
         this.playerPosition.y -= speed * 0.85;
       }
       this.highestAirY = this.playerPosition.y;
+      this.lastVelocity.x = moveDirection.x * this.flySpeed;
+      this.lastVelocity.z = moveDirection.z * this.flySpeed;
       this._applyCameraTransform();
       return;
     }
 
     // Phase U0.3 — Axis-Separated AABB Collision Resolution (X -> Y -> Z)
     const speed =
-      this.moveSpeed * (this.isSprinting() ? this.sprintMultiplier : 1.0);
+      this.moveSpeed *
+      (this.externalSpeedMultiplier || 1.0) *
+      (this.isSprinting() ? this.sprintMultiplier : 1.0);
     const dx = moveDirection.x * speed * dt;
     const dz = moveDirection.z * speed * dt;
+    this.lastVelocity.x = dt > 0 ? dx / dt : 0;
+    this.lastVelocity.z = dt > 0 ? dz / dt : 0;
 
     // 1. Resolve X Axis
     if (!this._collidesAt(this.playerPosition.x + dx, this.playerPosition.y, this.playerPosition.z)) {

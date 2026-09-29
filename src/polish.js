@@ -26,6 +26,13 @@ import {
   RangedMagicAttack,
   ProjectileManager,
 } from './combat/attacks/RangedMagicAttack.js';
+import {
+  NightMobCombatController,
+  NIGHT_MOB_ATTACKS,
+  NIGHT_MOB_STATS,
+} from './mobAttacks.js';
+import { NightProjectileSystem } from './projectiles.js';
+import { DaylightBurnSystem } from './daylightBurn.js';
 
 // ============================================================================
 // Phases U2.3, U3.6, U5 & Tasks F1, F2, F3 — Combat, Spawning & 16-Mob Suite
@@ -143,6 +150,40 @@ export class SoundEffectsManager {
     gain.connect(ctx.destination);
     osc.start(now);
     osc.stop(now + 0.47);
+  }
+
+  playScreech() {
+    const ctx = this._ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(680, now);
+    osc.frequency.exponentialRampToValueAtTime(190, now + 0.38);
+    gain.gain.setValueAtTime(0.22, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.39);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.4);
+  }
+
+  playBurnSizzle() {
+    const ctx = this._ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(310, now);
+    osc.frequency.exponentialRampToValueAtTime(120, now + 0.09);
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.exponentialRampToValueAtTime(0.008, now + 0.09);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.1);
   }
 
   playPlayerHurt() {
@@ -431,8 +472,12 @@ export class PassiveMobManager {
     this.mobs = [];
     this.cycleIndex = 0;
 
-    // Shared projectile system for Hexcaster & Bonewalker (Task F3)
+    // Shared projectile systems (Task F3 & Night Mob 3-Attack Suite)
     this.projectileManager = new ProjectileManager(scene, world, particles);
+    this.nightProjectiles = new NightProjectileSystem(scene, world, particles, sfx);
+    this.daylightBurn = new DaylightBurnSystem(world, particles, sfx);
+    this.aiEnabled = true;
+    this.currentTimeOfDay = 0.25;
 
     // Task F2 Spawn Timer & Telemetry Log
     this.spawnTimer = 0;
@@ -445,7 +490,7 @@ export class PassiveMobManager {
       night_monster: 0,
     };
 
-    // Task F1 / F3 Debug View (F4 Toggle)
+    // Task F1 / F3 Debug View (F4 Toggle & /mobdebug)
     this.debugViewEnabled = false;
     this.debugGroup = new THREE.Group();
     this.scene.add(this.debugGroup);
@@ -499,6 +544,55 @@ export class PassiveMobManager {
     return spawnedList;
   }
 
+  /**
+   * Section 4: GrimWraith summons Bonewalker skeletons around itself (Max 3 alive at once).
+   */
+  summonWraithSkeletons(wraithMob, maxCap = 3) {
+    if (!wraithMob.summoned) wraithMob.summoned = [];
+    wraithMob.summoned = wraithMob.summoned.filter((s) => s && s.hp > 0);
+    const needed = Math.max(0, maxCap - wraithMob.summoned.length);
+    if (needed <= 0) return 0;
+
+    const skelCfg = getMobConfig('Bonewalker');
+    let count = 0;
+    for (let i = 0; i < needed; i++) {
+      const a = (i / needed) * Math.PI * 2 + Math.random() * 0.5;
+      const sx = wraithMob.group.position.x + Math.cos(a) * 2.4;
+      const sz = wraithMob.group.position.z + Math.sin(a) * 2.4;
+      const skel = this._createMob(skelCfg, this.mobs.length, sx, sz);
+      skel.isSummonedSkeleton = true;
+      skel.parentWraith = wraithMob;
+      wraithMob.summoned.push(skel);
+      this.mobs.push(skel);
+      if (this.particles) {
+        this.particles.spawnBurst(sx, skel.group.position.y + 0.5, sz, 'gem_ore');
+      }
+      count++;
+    }
+    return count;
+  }
+
+  /**
+   * Section 9: /killmobs — Removes all hostile mobs & summoned skeletons.
+   */
+  killAllHostileMobs() {
+    let removed = 0;
+    for (let i = this.mobs.length - 1; i >= 0; i--) {
+      const m = this.mobs[i];
+      if (
+        m.spec.behaviorClass === 'night_monster' ||
+        m.spec.behaviorClass === 'wild_predator' ||
+        m.isSummonedSkeleton
+      ) {
+        m.nightCombat?.cancel(m, this.nightProjectiles);
+        this._removeMobAtIndex(i);
+        removed++;
+      }
+    }
+    this.nightProjectiles.setSoulBeam(false);
+    return removed;
+  }
+
   _recordSpawnLog(status, reason) {
     this.lastSpawnAttempts.unshift({
       time: new Date().toLocaleTimeString(),
@@ -541,11 +635,14 @@ export class PassiveMobManager {
     rig.group.rotation.y = initYaw;
     this.scene.add(rig.group);
 
-    // Instantiate data-driven Attack Controller (Task F1 & Task F3)
+    // Instantiate data-driven Attack Controller (Task F1, F3 & 3-Attack Night Suite)
     const attackController =
       cfg.attackType === 'ranged'
         ? new RangedMagicAttack(cfg)
         : new MeleeAttack(cfg);
+    const nightCombat = NIGHT_MOB_ATTACKS[typeName]
+      ? new NightMobCombatController(typeName)
+      : null;
 
     return {
       id: `${typeName}_${Date.now()}_${Math.floor(Math.random() * 9999)}`,
@@ -563,6 +660,7 @@ export class PassiveMobManager {
       maxHp: cfg.maxHp,
       state: 'Wander',
       attackPhase: 'IDLE',
+      activeAttackName: '',
       phaseTimer: 0,
       attackCooldown: 0,
       lastAttackOutcome: '',
@@ -571,12 +669,16 @@ export class PassiveMobManager {
       aggroMemoryTimer: 0,
       retreatTimer: 0,
       burning: false,
+      isSunlit: false,
+      shadeTarget: null,
+      summoned: [],
       yaw: initYaw,
       timer: 1.5 + Math.random() * 2.5,
       hurtTimer: 0,
       animPhase: Math.random() * 10,
       deadTimer: 0,
       attackController,
+      nightCombat,
     };
   }
 
@@ -644,12 +746,14 @@ export class PassiveMobManager {
     closestMob.hurtTimer = 0.24;
     closestMob.bodyMat.color.setHex(0xef4444);
 
+    const kbResist =
+      NIGHT_MOB_STATS[closestMob.spec.type]?.knockbackResist ?? 0.0;
     const kb = closestMob.group.position
       .clone()
       .sub(origin)
       .setY(0)
       .normalize();
-    closestMob.group.position.addScaledVector(kb, 0.85);
+    closestMob.group.position.addScaledVector(kb, 0.85 * (1.0 - kbResist));
 
     if (closestMob.spec.behaviorClass === 'passive') {
       closestMob.state = 'Flee';
@@ -665,6 +769,17 @@ export class PassiveMobManager {
 
     if (closestMob.hp <= 0) {
       closestMob.attackController?.cancel(closestMob);
+      closestMob.nightCombat?.cancel(closestMob, this.nightProjectiles);
+      // Section 4: If GrimWraith dies, all its summoned skeletons crumble immediately!
+      if (Array.isArray(closestMob.summoned)) {
+        for (const skel of closestMob.summoned) {
+          if (skel && skel.hp > 0) {
+            skel.hp = 0;
+            skel.deadTimer = 0.25;
+          }
+        }
+        closestMob.summoned.length = 0;
+      }
       closestMob.deadTimer = 0.55;
       return {
         killed: true,
@@ -822,8 +937,17 @@ export class PassiveMobManager {
     isNight = false,
     onPlayerDamaged = null,
     playerVelocity = { x: 0, z: 0 },
-    lookDirection = null
+    lookDirection = null,
+    statusEffects = null,
+    isGamePaused = false,
+    timeOfDay = 0.25,
+    playerHp = 20
   ) {
+    // Section 1.2: Mobs must not attack through player's inventory/menu screen when paused
+    if (isGamePaused) return;
+
+    this.currentTimeOfDay = timeOfDay;
+
     const playerTarget = {
       isPlayer: true,
       position: playerPosition,
@@ -834,7 +958,13 @@ export class PassiveMobManager {
       vz: playerVelocity.z || 0,
     };
 
-    // 1. Update Projectiles (Hexcaster magic bolts & Bonewalker arrows) with SWEPT collision
+    // 1. Update Pooled Night Mob Projectiles, Puddles & Rings + Task F3 Projectiles
+    this.nightProjectiles.update(
+      deltaTime,
+      playerPosition,
+      statusEffects,
+      onPlayerDamaged
+    );
     this.projectileManager.update(deltaTime, playerTarget, (hitInfo) => {
       if (typeof onPlayerDamaged === 'function') {
         onPlayerDamaged(hitInfo.damage, `${hitInfo.source} (${hitInfo.style})`, {
@@ -843,6 +973,11 @@ export class PassiveMobManager {
       }
     });
 
+    if (!this.aiEnabled) {
+      this._updateDebugVisuals(playerTarget);
+      return;
+    }
+
     // 2. Periodic Spawn Timer (every 2.0s, never every frame)
     this.spawnTimer += deltaTime;
     if (this.spawnTimer >= SPAWN_CONFIG.SPAWN_INTERVAL_SECONDS) {
@@ -850,15 +985,22 @@ export class PassiveMobManager {
       this._runSpawnCycle(playerPosition, lookDirection, isNight);
     }
 
-    // 3. Sunrise / Daytime Despawn & Sunlight Burning for night_monsters (Task F2)
-    if (!isNight) {
-      this.dawnDespawnAccum += deltaTime * SPAWN_CONFIG.DAWN_DESPAWN_RATE_PER_SEC;
-    } else {
-      this.dawnDespawnAccum = 0;
-    }
+    // 3. Section 7: Open-Sky Sunlight Burning & Shade Seeking (every 0.5s check)
+    this.daylightBurn.update(
+      deltaTime,
+      this.mobs,
+      timeOfDay,
+      isNight,
+      playerPosition
+    );
 
     for (let i = this.mobs.length - 1; i >= 0; i--) {
       const mob = this.mobs[i];
+
+      // Clean up dead summoned skeletons from parent Wraith array
+      if (mob.summoned && mob.summoned.length > 0) {
+        mob.summoned = mob.summoned.filter((s) => s && s.hp > 0);
+      }
 
       if (mob.hp <= 0) {
         mob.deadTimer -= deltaTime;
@@ -876,40 +1018,9 @@ export class PassiveMobManager {
       const dz = playerPosition.z - mob.group.position.z;
       const horizDist = Math.sqrt(dx * dx + dz * dz);
 
-      // Hard despawn beyond 96 blocks
       if (horizDist > SPAWN_CONFIG.HARD_DESPAWN_DIST) {
         this._removeMobAtIndex(i);
         continue;
-      }
-
-      // Sunrise handling for night_monster
-      const isAttackingNow =
-        mob.attackPhase && mob.attackPhase !== 'IDLE';
-      if (mob.spec.behaviorClass === 'night_monster' && !isNight && !isAttackingNow) {
-        if (horizDist > SPAWN_CONFIG.IMMEDIATE_DESPAWN_DIST) {
-          this._removeMobAtIndex(i);
-          continue;
-        }
-        if (mob.spec.burnsInSunlight) {
-          mob.burning = true;
-          mob.hp -= SPAWN_CONFIG.SUNLIGHT_BURN_DPS * deltaTime;
-          mob.bodyMat.color.setHex(
-            Math.floor( performance.now() / 120 ) % 2 === 0 ? 0xf97316 : 0xef4444
-          );
-          if (mob.hp <= 0) {
-            mob.deadTimer = 0.35;
-            continue;
-          }
-        } else if (
-          horizDist > SPAWN_CONFIG.SOFT_DESPAWN_DIST &&
-          this.dawnDespawnAccum >= 1.0
-        ) {
-          this.dawnDespawnAccum -= 1.0;
-          this._removeMobAtIndex(i);
-          continue;
-        }
-      } else {
-        mob.burning = false;
       }
 
       if (mob.hurtTimer > 0) {
@@ -919,26 +1030,24 @@ export class PassiveMobManager {
         }
       }
 
-      // Determine whether this mob is hostile / aggroed toward the player (Task F2)
       const bClass = mob.spec.behaviorClass || 'passive';
-      const senseRange = mob.spec.senseRange ?? 14;
+      const senseRange = mob.spec.senseRange ?? 18;
       const { from: eyePos, to: chestPos } = getCombatRayEndpoints(
         mob,
         playerTarget
       );
-      const canSeePlayer =
-        horizDist <= senseRange && hasLineOfSight(this.world, eyePos, chestPos);
+      const hasLOS = hasLineOfSight(this.world, eyePos, chestPos);
+      const canSeePlayer = horizDist <= senseRange && hasLOS;
 
       let wantsToFight = false;
       if (bClass === 'wild_predator') {
-        // Attacks on sight ANY time of day (day & night), loses interest after 10s without LOS
         if (canSeePlayer || horizDist < 5.0) {
           mob.aggroMemoryTimer = mob.spec.loseInterestSeconds ?? 10.0;
         } else if (mob.aggroMemoryTimer > 0) {
           mob.aggroMemoryTimer -= deltaTime;
         }
         wantsToFight = mob.aggroMemoryTimer > 0;
-      } else if (bClass === 'night_monster') {
+      } else if (bClass === 'night_monster' || mob.isSummonedSkeleton) {
         wantsToFight = horizDist <= senseRange;
       } else if (bClass === 'neutral') {
         if (mob.provoked && mob.aggroMemoryTimer > 0) {
@@ -949,18 +1058,89 @@ export class PassiveMobManager {
         }
       }
 
-      // Treeswing Ape hit-and-retreat timer
       if (mob.retreatTimer > 0) {
         mob.retreatTimer -= deltaTime;
       }
 
       const gap = gapDistance(mob, playerTarget);
 
-      if (wantsToFight) {
+      // Section 7.3: If mob is BURNING in daylight and player is > 5 blocks away,
+      // it runs to the nearest shade/water spot within 20 blocks! If player <= 5 blocks, it keeps fighting!
+      if (mob.burning && mob.shadeTarget && horizDist > 5.0) {
+        const sdx = mob.shadeTarget.x - mob.group.position.x;
+        const sdz = mob.shadeTarget.z - mob.group.position.z;
+        mob.yaw = Math.atan2(sdx, sdz);
+        mob.state = 'SeekShade';
+        mob.nightCombat?.cancel(mob, this.nightProjectiles);
+      } else if (wantsToFight && mob.nightCombat) {
+        // ====================================================================
+        // Sections 3, 4, 5, 6: 3-Attack Night Mob Combat State Machine
+        // ====================================================================
+        mob.yaw = Math.atan2(dx, dz);
+
+        mob.nightCombat.update(
+          deltaTime,
+          mob,
+          playerTarget,
+          this.world,
+          this.nightProjectiles,
+          statusEffects,
+          onPlayerDamaged,
+          (wraithMob, maxCap) => this.summonWraithSkeletons(wraithMob, maxCap),
+          this.sfx
+        );
+
+        if (
+          mob.attackPhase === 'WINDUP' ||
+          mob.attackPhase === 'CHANNELING_CONE'
+        ) {
+          mob.state = 'WindupStop';
+        } else {
+          const nextAtk = mob.nightCombat.selectReadyAttack(
+            mob,
+            gap,
+            hasLOS,
+            statusEffects,
+            playerHp
+          );
+          if (nextAtk) {
+            mob.nightCombat.startWindup(mob, nextAtk, statusEffects, this.sfx);
+            mob.state = 'WindupStop';
+          } else {
+            // Mob-specific tactical positioning when between attacks:
+            const mType = mob.spec.type;
+            if (
+              mType === 'BloodCrawler' &&
+              (mob.nightCombat.cooldowns.get('poison_spit') || 0) > 0 &&
+              gap > 3.2
+            ) {
+              mob.state = 'StrafeCast';
+            } else if (
+              mType === 'ShadowStalker' &&
+              gap >= 9.5 &&
+              gap <= 14.5 &&
+              mob.nightCombat.stalkTimer > 0
+            ) {
+              mob.nightCombat.stalkTimer -= deltaTime;
+              mob.state = 'StalkCircle';
+            } else if (
+              mType === 'FleshGhoul' &&
+              gap > 8.0 &&
+              mob.nightCombat.chargeTimer <= 0
+            ) {
+              mob.nightCombat.chargeTimer = 1.0;
+              mob.state = 'ChargeRush';
+            } else if (mob.nightCombat.chargeTimer > 0) {
+              mob.state = 'ChargeRush';
+            } else {
+              mob.state = 'Chase';
+            }
+          }
+        }
+      } else if (wantsToFight) {
         mob.yaw = Math.atan2(dx, dz);
 
         if (mob.spec.attackType === 'ranged') {
-          // Task F3: Ranged Magic / Bow Monster (Hexcaster / GrimWraith / Bonewalker)
           mob.attackController.update(
             deltaTime,
             mob,
@@ -968,7 +1148,6 @@ export class PassiveMobManager {
             this.world,
             this.projectileManager
           );
-
           if (
             mob.attackPhase === 'IDLE' &&
             mob.attackController.canStart(mob, playerTarget, this.world)
@@ -976,28 +1155,19 @@ export class PassiveMobManager {
             mob.attackController.start(mob);
             this.sfx?.playCastTelegraph();
           }
-
-          // Kiting & Strafing movement
           const minComfort = mob.spec.minComfortDist ?? 6.0;
           const castRange = mob.spec.castRange ?? 14.0;
-          if (gap < minComfort) {
-            mob.state = 'KiteBack';
-          } else if (mob.attackPhase === 'CASTING') {
-            mob.state = 'StrafeCast';
-          } else if (gap > castRange - 1.2) {
-            mob.state = 'Chase';
-          } else {
-            mob.state = 'HoldRange';
-          }
+          if (gap < minComfort) mob.state = 'KiteBack';
+          else if (mob.attackPhase === 'CASTING') mob.state = 'StrafeCast';
+          else if (gap > castRange - 1.2) mob.state = 'Chase';
+          else mob.state = 'HoldRange';
         } else {
-          // Task F1 & F3: Close-Only Melee Monster / Wild Predator
           mob.attackController.update(
             deltaTime,
             mob,
             playerTarget,
             this.world,
             ({ damage, knockback }) => {
-              // STRIKE hit verified against current inMeleeRange & hasLineOfSight!
               if (typeof onPlayerDamaged === 'function') {
                 onPlayerDamaged(damage, mob.spec.label || mob.spec.type, {
                   knockback,
@@ -1008,17 +1178,13 @@ export class PassiveMobManager {
               }
             },
             () => {
-              // STRIKE missed because player stepped out of range or behind cover during windup!
               this.sfx?.playWhooshMiss();
             }
           );
 
-          if (mob.retreatTimer > 0) {
-            mob.state = 'Retreat';
-          } else if (mob.attackPhase === 'WINDUP') {
-            // Stop walking during WINDUP telegraph!
-            mob.state = 'WindupStop';
-          } else if (
+          if (mob.retreatTimer > 0) mob.state = 'Retreat';
+          else if (mob.attackPhase === 'WINDUP') mob.state = 'WindupStop';
+          else if (
             mob.attackPhase === 'IDLE' &&
             mob.attackController.canStart(mob, playerTarget, this.world)
           ) {
@@ -1032,10 +1198,10 @@ export class PassiveMobManager {
         }
       } else {
         mob.attackController?.cancel(mob);
+        mob.nightCombat?.cancel(mob, this.nightProjectiles);
         mob.timer -= deltaTime;
         if (mob.timer <= 0) {
           mob.state = Math.random() > 0.22 ? 'Wander' : 'Idle';
-          // Herd cohesion: if part of a 3-4 animal group and drifted > 6.5m from anchor, steer back toward herd!
           if (mob.groupAnchor) {
             const adx = mob.groupAnchor.x - mob.group.position.x;
             const adz = mob.groupAnchor.z - mob.group.position.z;
@@ -1051,12 +1217,16 @@ export class PassiveMobManager {
         }
       }
 
-      // Movement execution with voxel wall collision check
+      // Movement execution with burning panic (+20% speed) & FleshGhoul Charge (x1.6)
       let moveX = 0;
       let moveZ = 0;
-      const spd = mob.spec.speed;
+      const burnSpeedMult = mob.burning ? 1.2 : 1.0; // Section 7.3: +20% panic speed while burning
+      const spd = mob.spec.speed * burnSpeedMult;
 
-      if (mob.state === 'Chase') {
+      if (mob.state === 'ChargeRush') {
+        moveX = Math.sin(mob.yaw) * spd * 1.6;
+        moveZ = Math.cos(mob.yaw) * spd * 1.6;
+      } else if (mob.state === 'SeekShade' || mob.state === 'Chase') {
         moveX = Math.sin(mob.yaw) * spd * 1.2;
         moveZ = Math.cos(mob.yaw) * spd * 1.2;
       } else if (mob.state === 'Flee' || mob.state === 'Retreat') {
@@ -1065,10 +1235,10 @@ export class PassiveMobManager {
       } else if (mob.state === 'KiteBack') {
         moveX = -Math.sin(mob.yaw) * spd * 1.1;
         moveZ = -Math.cos(mob.yaw) * spd * 1.1;
-      } else if (mob.state === 'StrafeCast') {
+      } else if (mob.state === 'StrafeCast' || mob.state === 'StalkCircle') {
         const perpYaw = mob.yaw + (mob.strafeDir || 1) * (Math.PI * 0.5);
-        moveX = Math.sin(perpYaw) * spd * 0.75;
-        moveZ = Math.cos(perpYaw) * spd * 0.75;
+        moveX = Math.sin(perpYaw) * spd * 0.85;
+        moveZ = Math.cos(perpYaw) * spd * 0.85;
       } else if (mob.state === 'Wander') {
         moveX = Math.sin(mob.yaw) * spd * 0.75;
         moveZ = Math.cos(mob.yaw) * spd * 0.75;
@@ -1078,13 +1248,22 @@ export class PassiveMobManager {
       if (isMoving) {
         const nextX = mob.group.position.x + moveX * deltaTime;
         const nextZ = mob.group.position.z + moveZ * deltaTime;
-        // Prevent walking straight inside a wall block at torso level
-        const blockAtNext = this.world.getBlock(
+        const blockAtTorso = this.world.getBlock(
           Math.floor(nextX + 0.5),
           Math.floor(mob.group.position.y + 0.6),
           Math.floor(nextZ + 0.5)
         );
-        if (!blockAtNext || blockAtNext === 'water') {
+        const blockAboveLedge = this.world.getBlock(
+          Math.floor(nextX + 0.5),
+          Math.floor(mob.group.position.y + 1.6),
+          Math.floor(nextZ + 0.5)
+        );
+        // BloodCrawler can climb 1-block ledges automatically
+        if (
+          !blockAtTorso ||
+          blockAtTorso === 'water' ||
+          (mob.spec.type === 'BloodCrawler' && !blockAboveLedge)
+        ) {
           mob.group.position.x = nextX;
           mob.group.position.z = nextZ;
         }
