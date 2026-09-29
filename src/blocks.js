@@ -662,7 +662,7 @@ let loadedAtlasImage = null;
 
 if (typeof window !== 'undefined' && typeof Image !== 'undefined') {
   const img = new Image();
-  img.src = './assets/textures/atlas.png';
+  img.src = './assets/blocks/atlas.png';
   img.onload = () => {
     loadedAtlasImage = img;
     iconCache.clear();
@@ -675,8 +675,8 @@ if (typeof window !== 'undefined' && typeof Image !== 'undefined') {
 
 /**
  * Phase U6.3 — Renders an isometric 3D cube icon onto an offscreen canvas
- * using the actual 32x32 top and side tiles from public/assets/textures/atlas.png
- * (or fallback per-face colors prior to image decode).
+ * using the 64x64 3D Blender-sculpted top and side tiles from public/assets/blocks/atlas.png
+ * (or pre-baked ./assets/blocks/<blockId>_render.png).
  */
 export function getBlockIconDataURL(blockId) {
   if (iconCache.has(blockId)) {
@@ -684,20 +684,25 @@ export function getBlockIconDataURL(blockId) {
   }
 
   const block = BLOCK_BY_ID[blockId] || BLOCK_DEFINITIONS[0];
-  const size = 48;
+  // Check if pre-rendered 3D Blender isometric PNG exists for this block id
+  if (block && block.id && !loadedAtlasImage) {
+    return `./assets/blocks/${block.id}_render.png`;
+  }
+
+  const size = 64;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d');
-  ctx.imageSmoothingEnabled = false;
+  ctx.imageSmoothingEnabled = true;
 
   const cx = size / 2;
   const cy = size / 2;
-  const r = 18;
-  const dy = 10;
+  const r = 24;
+  const dy = 13;
 
   if (loadedAtlasImage && block.tiles) {
-    const T_PX = 32;
+    const T_PX = 64;
     const COLS = 16;
     const drawTileRect = (tileIdx, shadeAlpha = 0) => {
       const sx = (tileIdx % COLS) * T_PX;

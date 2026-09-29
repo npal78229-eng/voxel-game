@@ -22,11 +22,11 @@ function applyAtlasShader(material) {
   float tileIdx = (faceType < 0.5) ? instanceTiles.x : ((faceType < 1.5) ? instanceTiles.y : instanceTiles.z);
   float col = mod(tileIdx, 16.0);
   float row = floor(tileIdx / 16.0);
-  float eps = 0.5 / 512.0;
-  float u0 = (col * 32.0) / 512.0 + eps;
-  float u1 = ((col + 1.0) * 32.0) / 512.0 - eps;
-  float v0 = 1.0 - ((row + 1.0) * 32.0) / 512.0 + eps;
-  float v1 = 1.0 - (row * 32.0) / 512.0 - eps;
+  float eps = 0.5 / 1024.0;
+  float u0 = (col * 64.0) / 1024.0 + eps;
+  float u1 = ((col + 1.0) * 64.0) / 1024.0 - eps;
+  float v0 = 1.0 - ((row + 1.0) * 64.0) / 1024.0 + eps;
+  float v1 = 1.0 - (row * 64.0) / 1024.0 - eps;
   vMapUv = vec2(mix(u0, u1, uv.x), mix(v0, v1, uv.y));
 #endif`
       );
@@ -38,9 +38,9 @@ let sharedAtlasTexture = null;
 export function getSharedAtlasTexture() {
   if (!sharedAtlasTexture) {
     const loader = new THREE.TextureLoader();
-    sharedAtlasTexture = loader.load('./assets/textures/atlas.png');
-    sharedAtlasTexture.magFilter = THREE.NearestFilter;
-    sharedAtlasTexture.minFilter = THREE.NearestFilter;
+    sharedAtlasTexture = loader.load('./assets/blocks/atlas.png');
+    sharedAtlasTexture.magFilter = THREE.LinearFilter;
+    sharedAtlasTexture.minFilter = THREE.LinearFilter;
     sharedAtlasTexture.generateMipmaps = false;
     sharedAtlasTexture.colorSpace = THREE.SRGBColorSpace;
   }
@@ -50,8 +50,8 @@ export function getSharedAtlasTexture() {
 function createTintableVoxelMaterial() {
   const mat = new THREE.MeshStandardMaterial({
     map: getSharedAtlasTexture(),
-    roughness: 0.82,
-    metalness: 0.04,
+    roughness: 0.68,
+    metalness: 0.08,
   });
   return applyAtlasShader(mat);
 }
