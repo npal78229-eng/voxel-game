@@ -11,10 +11,15 @@ export const RENDER_RADIUS = 3;
 export const UNLOAD_RADIUS = 4;
 export const MAX_CHUNKS_PER_FRAME = 2;
 
+export const sharedShaderUniforms = {
+  uTime: { value: 0 },
+};
+
 function applyAtlasShader(material) {
   material.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = sharedShaderUniforms.uTime;
     shader.vertexShader =
-      `attribute float faceType;\nattribute vec3 instanceTiles;\n` +
+      `uniform float uTime;\nattribute float faceType;\nattribute vec3 instanceTiles;\n` +
       shader.vertexShader.replace(
         '#include <uv_vertex>',
         `#include <uv_vertex>
@@ -27,7 +32,11 @@ function applyAtlasShader(material) {
   float u1 = ((col + 1.0) * 64.0) / 1024.0 - eps;
   float v0 = 1.0 - ((row + 1.0) * 64.0) / 1024.0 + eps;
   float v1 = 1.0 - (row * 64.0) / 1024.0 - eps;
-  vMapUv = vec2(mix(u0, u1, uv.x), mix(v0, v1, uv.y));
+  vec2 localUv = uv;
+  if (abs(tileIdx - 44.0) < 0.2 || abs(tileIdx - 45.0) < 0.2) {
+    localUv.y = fract(localUv.y + uTime * (abs(tileIdx - 44.0) < 0.2 ? 0.35 : 0.12));
+  }
+  vMapUv = vec2(mix(u0, u1, localUv.x), mix(v0, v1, localUv.y));
 #endif`
       );
   };
@@ -39,8 +48,8 @@ export function getSharedAtlasTexture() {
   if (!sharedAtlasTexture) {
     const loader = new THREE.TextureLoader();
     sharedAtlasTexture = loader.load('./assets/blocks/atlas.png');
-    sharedAtlasTexture.magFilter = THREE.LinearFilter;
-    sharedAtlasTexture.minFilter = THREE.LinearFilter;
+    sharedAtlasTexture.magFilter = THREE.NearestFilter;
+    sharedAtlasTexture.minFilter = THREE.NearestFilter;
     sharedAtlasTexture.generateMipmaps = false;
     sharedAtlasTexture.colorSpace = THREE.SRGBColorSpace;
   }
@@ -50,8 +59,8 @@ export function getSharedAtlasTexture() {
 function createTintableVoxelMaterial() {
   const mat = new THREE.MeshStandardMaterial({
     map: getSharedAtlasTexture(),
-    roughness: 0.68,
-    metalness: 0.08,
+    roughness: 0.85,
+    metalness: 0.02,
   });
   return applyAtlasShader(mat);
 }
@@ -287,8 +296,16 @@ export class VoxelWorld {
   setBlock(wx, wy, wz, blockType) {
     if (!blockType) return this.removeBlock(wx, wy, wz);
     const x = Math.round(wx);
-    const y = Math.round(wy);
+    let y = Math.round(wy);
     const z = Math.round(wz);
+
+    // Task F6: Gravity blocks (sand, gravel) fall downward when unsupported
+    if (blockType === 'sand' || blockType === 'gravel') {
+      while (y > 1 && !this.hasSolidBlockAt(x, y - 1, z)) {
+        y--;
+      }
+    }
+
     const chunk = this.getChunkAtWorld(x, z);
     if (!chunk) return false;
 
@@ -310,7 +327,6 @@ export class VoxelWorld {
     const key = this.coordKey(x, y, z);
     const existing = chunk.blocks.get(key);
     if (!existing) return false;
-    // Bedrock at y=0 is unbreakable (Phase U3.1)
     if (existing === 'bedrock' || BLOCK_BY_ID[existing]?.hardness === Infinity) {
       return false;
     }
@@ -319,7 +335,50 @@ export class VoxelWorld {
     chunk.blocks.delete(key);
     chunk.rebuildMesh();
     this._rebuildNeighborChunksIfOnBorder(x, z, chunk);
+
+    // Task F6: Trigger gravity check on column above (sand/gravel above falls down!)
+    for (let checkY = y + 1; checkY <= y + 8; checkY++) {
+      const aboveType = this.getBlock(x, checkY, z);
+      if (aboveType === 'sand' || aboveType === 'gravel') {
+        const chunkAbove = this.getChunkAtWorld(x, z);
+        const keyAbove = this.coordKey(x, checkY, z);
+        this.modifiedBlocks.set(keyAbove, null);
+        chunkAbove?.blocks.delete(keyAbove);
+        this.setBlock(x, checkY, z, aboveType);
+      } else {
+        break;
+      }
+    }
+
     return true;
+  }
+
+  /**
+   * Task F6: /gallery command — Builds a showcase grid of all 36 blocks in front of the player
+   * so every surface, face texture, ore, wood, and light source can be inspected side-by-side.
+   */
+  buildBlockGallery(centerX, centerZ) {
+    const startX = Math.round(centerX) - 6;
+    const startZ = Math.round(centerZ) - 10;
+    const baseY = Math.max(20, this.getSurfaceHeight(centerX, centerZ) + 1);
+    const blockIds = Object.keys(BLOCK_BY_ID).slice(0, 36);
+
+    // Build a seamless 14x10 stone-brick showcase floor first
+    for (let dx = -1; dx <= 12; dx++) {
+      for (let dz = -1; dz <= 7; dz++) {
+        this.setBlock(startX + dx, baseY, startZ + dz, 'stone_bricks');
+      }
+    }
+
+    // Place every block in a neat 6x6 showcase grid on top of the floor
+    for (let i = 0; i < blockIds.length; i++) {
+      const col = i % 6;
+      const row = Math.floor(i / 6);
+      const bx = startX + col * 2;
+      const bz = startZ + row * 1;
+      this.setBlock(bx, baseY + 1, bz, blockIds[i]);
+    }
+    return { count: blockIds.length, x: startX + 5, y: baseY + 2, z: startZ + 3 };
   }
 
   _rebuildNeighborChunksIfOnBorder(wx, wz, chunk) {

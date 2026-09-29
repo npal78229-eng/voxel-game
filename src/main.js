@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { VoxelWorld } from './world.js';
+import { VoxelWorld, sharedShaderUniforms } from './world.js';
 import { FirstPersonController } from './controls.js';
 import { setupLighting } from './lighting.js';
 import { raycastVoxelDDA, VoxelTargetHighlighter } from './raycaster.js';
@@ -473,13 +473,29 @@ function executeConsoleCommand(cmdStr) {
     );
     world.reloadAllChunks(controls.playerPosition);
     showToast(`Teleported to (${parts[1]}, ${parts[2]}, ${parts[3]})`);
+  } else if (cmd === 'gallery') {
+    // Task F6: Build 36-Block Gallery Showcase Grid in front of the player
+    const info = world.buildBlockGallery(
+      controls.playerPosition.x,
+      controls.playerPosition.z
+    );
+    showToast(
+      `Built ${info.count}-Block Seamless Gallery Grid ahead! Inspect in daylight or '/time set night'.`,
+      5500
+    );
   } else if (cmd === 'spawn') {
-    const mobName = parts[1] || 'Hexcaster';
+    const mobName = parts[1] || 'Pig';
+    const countArg = Number(parts[2]) || 0;
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
     const tx = currentHit ? currentHit.x : controls.playerPosition.x + forward.x * 4.5;
     const tz = currentHit ? currentHit.z : controls.playerPosition.z + forward.z * 4.5;
-    const spawned = mobs.spawnMobAt(mobName, tx, tz);
-    showToast(`Spawned ${spawned} at (${tx.toFixed(1)}, ${tz.toFixed(1)})`);
+    if (countArg >= 2) {
+      const list = mobs.spawnMobGroup(mobName, tx, tz, countArg);
+      showToast(`Spawned herd of ${list.length}x ${mobName} at (${tx.toFixed(1)}, ${tz.toFixed(1)})`);
+    } else {
+      const spawned = mobs.spawnMobAt(mobName, tx, tz);
+      showToast(`Spawned ${spawned} at (${tx.toFixed(1)}, ${tz.toFixed(1)})`);
+    }
   } else if (cmd === 'heal') {
     playerStats.hp = 20;
     playerStats.hunger = 20;
@@ -649,7 +665,8 @@ function animate() {
     playerStats.slowTimer = Math.max(0, playerStats.slowTimer - deltaTime);
   }
 
-  // 3. Update Sky, Mobs & Particles
+  // 3. Update Sky, Animated Fluids, Mobs & Particles
+  sharedShaderUniforms.uTime.value += deltaTime;
   camera.getWorldDirection(lookDirection);
   dayNight.update(deltaTime, controls.playerPosition);
   mobs.update(

@@ -450,33 +450,53 @@ export class PassiveMobManager {
     this.debugGroup = new THREE.Group();
     this.scene.add(this.debugGroup);
 
-    // Task F2 Rule: NEVER spawn night_monsters at world generation or during daytime!
-    // Only spawn passive animals, neutral Dog, and wild_predators (Fang Wolf & Treeswing Ape packs).
-    const initialDaySpawns = [
-      ['Pig', 8.0, 6.8],
-      ['Dog', 6.2, 7.2],
-      ['Cow', 9.8, 7.2],
-      ['Sheep', 4.6, 8.2],
-      ['Rabbit', 7.1, 5.6],
-      ['Bird', 8.9, 5.6],
-      ['Cat', 11.4, 8.2],
-      ['Chicken', 5.6, 6.0],
-      // Wild predators (spawn day & night in small packs slightly away from spawn)
-      ['Wolf', 21.0, 18.0],
-      ['Wolf', 22.8, 19.2],
-      ['Monkey', -8.0, 21.0],
-      ['Monkey', -6.5, 22.4],
+    // Task F2 & User Request: Animals spawn in cohesive herds/flocks of 3 or 4!
+    // NEVER spawn night_monsters during daytime or at world generation.
+    const initialAnimalHerds = [
+      { type: 'Pig', x: 11.0, z: 4.5, count: 4 },
+      { type: 'Cow', x: -3.5, z: 5.5, count: 3 },
+      { type: 'Sheep', x: 17.5, z: 12.0, count: 4 },
+      { type: 'Chicken', x: 3.5, z: 16.5, count: 3 },
+      { type: 'Rabbit', x: 14.0, z: 18.0, count: 3 },
+      { type: 'Dog', x: 6.8, z: 7.4, count: 3 },
+      // Wild predators also spawn in packs of 3
+      { type: 'Wolf', x: 24.0, z: 21.0, count: 3 },
+      { type: 'Monkey', x: -12.0, z: 22.0, count: 3 },
     ];
 
-    for (let i = 0; i < initialDaySpawns.length; i++) {
-      const [mType, mx, mz] = initialDaySpawns[i];
-      const cfg = getMobConfig(mType);
-      this.mobs.push(this._createMob(cfg, i, mx, mz));
+    for (const herd of initialAnimalHerds) {
+      this.spawnMobGroup(herd.type, herd.x, herd.z, herd.count);
     }
     this._recordSpawnLog(
       'INIT',
-      `Spawned ${initialDaySpawns.length} daytime mobs (0 night_monsters at daytime init)`
+      `Spawned ${this.mobs.length} animals in herds of 3-4 (0 night_monsters at daytime init)`
     );
+  }
+
+  /**
+   * Spawns a herd/pack of 3 to 4 mobs of the same species clustered around (centerX, centerZ).
+   */
+  spawnMobGroup(typeOrSpec, centerX, centerZ, count = null) {
+    const cfg = this._resolveSpec(typeOrSpec);
+    const [minG, maxG] = SPAWN_CONFIG.ANIMAL_GROUP_SIZE || [3, 4];
+    const groupSize =
+      count !== null
+        ? count
+        : minG + Math.floor(Math.random() * (maxG - minG + 1));
+
+    const groupAnchor = { x: centerX, z: centerZ };
+    const spawnedList = [];
+    for (let i = 0; i < groupSize; i++) {
+      const a = (i / groupSize) * Math.PI * 2 + Math.random() * 0.4;
+      const r = 1.4 + Math.random() * 1.6;
+      const mx = centerX + Math.cos(a) * r;
+      const mz = centerZ + Math.sin(a) * r;
+      const mob = this._createMob(cfg, this.mobs.length, mx, mz);
+      mob.groupAnchor = groupAnchor;
+      this.mobs.push(mob);
+      spawnedList.push(mob);
+    }
+    return spawnedList;
   }
 
   _recordSpawnLog(status, reason) {
@@ -735,7 +755,23 @@ export class PassiveMobManager {
       }
     }
 
-    // 2. Attempt Wild Predator Spawns (Day or Night, biome-aware)
+    // 2. Attempt Passive Animal Herd Spawns (Groups of 3 or 4 on grass/surface)
+    if (counts.passive < SPAWN_CONFIG.CAPS.passive) {
+      const dist = 16 + Math.random() * 20;
+      const angle = Math.random() * Math.PI * 2;
+      const sx = playerPosition.x + Math.cos(angle) * dist;
+      const sz = playerPosition.z + Math.sin(angle) * dist;
+      const pool = SPAWN_CONFIG.PASSIVE_POOL;
+      const chosenAnimal = pool[Math.floor(Math.random() * pool.length)];
+      const groupSize = 3 + Math.floor(Math.random() * 2); // 3 or 4
+      this.spawnMobGroup(chosenAnimal, sx, sz, groupSize);
+      this._recordSpawnLog(
+        'SUCCESS',
+        `Spawned herd of ${groupSize}x ${chosenAnimal} (passive) at ${dist.toFixed(1)}m`
+      );
+    }
+
+    // 3. Attempt Wild Predator Pack Spawns (Groups of 3 or 4, Day or Night)
     if (counts.wild_predator < SPAWN_CONFIG.CAPS.wild_predator) {
       const dist = 22 + Math.random() * 24;
       const angle = Math.random() * Math.PI * 2;
@@ -744,11 +780,11 @@ export class PassiveMobManager {
       const biome = this.world.noise.getBiomeAt(sx, sz);
       const predId =
         biome.id === 'swamp' || biome.id === 'savanna' ? 'Monkey' : 'Wolf';
-      const cfg = getMobConfig(predId);
-      this.mobs.push(this._createMob(cfg, this.mobs.length, sx, sz));
+      const packSize = 3 + Math.floor(Math.random() * 2); // 3 or 4
+      this.spawnMobGroup(predId, sx, sz, packSize);
       this._recordSpawnLog(
         'SUCCESS',
-        `Spawned ${predId} (wild_predator) in ${biome.id} at ${dist.toFixed(1)}m`
+        `Spawned pack of ${packSize}x ${predId} (wild_predator) in ${biome.id} at ${dist.toFixed(1)}m`
       );
     }
   }
@@ -998,8 +1034,19 @@ export class PassiveMobManager {
         mob.attackController?.cancel(mob);
         mob.timer -= deltaTime;
         if (mob.timer <= 0) {
-          mob.state = Math.random() > 0.25 ? 'Wander' : 'Idle';
-          mob.yaw += (Math.random() - 0.5) * 2.2;
+          mob.state = Math.random() > 0.22 ? 'Wander' : 'Idle';
+          // Herd cohesion: if part of a 3-4 animal group and drifted > 6.5m from anchor, steer back toward herd!
+          if (mob.groupAnchor) {
+            const adx = mob.groupAnchor.x - mob.group.position.x;
+            const adz = mob.groupAnchor.z - mob.group.position.z;
+            if (adx * adx + adz * adz > 6.5 * 6.5) {
+              mob.yaw = Math.atan2(adx, adz) + (Math.random() - 0.5) * 0.5;
+            } else {
+              mob.yaw += (Math.random() - 0.5) * 2.0;
+            }
+          } else {
+            mob.yaw += (Math.random() - 0.5) * 2.2;
+          }
           mob.timer = 1.8 + Math.random() * 2.5;
         }
       }

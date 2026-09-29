@@ -15,12 +15,13 @@ export const SPAWN_CONFIG = {
   MAX_MOBS_PER_ATTEMPT: 3, // Max mobs spawned per 2-second tick
   SUNLIGHT_BURN_DPS: 4.0, // Damage per second to burning night monsters at dawn
   DAWN_DESPAWN_RATE_PER_SEC: 2.0, // Non-burning night monsters despawned per second at dawn
+  ANIMAL_GROUP_SIZE: [3, 4], // Animals always spawn in herds/flocks of 3 or 4
   CAPS: {
-    passive: 14,
-    neutral: 3,
-    wild_predator: 6,
+    passive: 28,
+    neutral: 6,
+    wild_predator: 8,
     night_monster: 12,
-    global: 32,
+    global: 54,
   },
   NIGHT_MONSTER_POOL: [
     'ShadowStalker',
