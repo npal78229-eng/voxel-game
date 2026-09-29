@@ -262,9 +262,11 @@ export class FirstPersonController {
       );
     }
 
-    if (this.cameraShakeOffset && (this.cameraShakeOffset.x !== 0 || this.cameraShakeOffset.y !== 0)) {
-      this.camera.position.x += this.cameraShakeOffset.x;
-      this.camera.position.y += this.cameraShakeOffset.y;
+    const shakeX = Number(this.cameraShakeOffset?.x) || 0;
+    const shakeY = Number(this.cameraShakeOffset?.y) || 0;
+    if (shakeX !== 0 || shakeY !== 0) {
+      this.camera.position.x += shakeX;
+      this.camera.position.y += shakeY;
     }
   }
 

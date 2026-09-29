@@ -524,8 +524,8 @@ function executeConsoleCommand(cmdStr) {
     showToast('Cleared all active player status effects');
   } else if (cmd === 'mobai') {
     const state = (parts[1] || '').toLowerCase();
-    mobs.mobAiEnabled = state === 'off' ? false : state === 'on' ? true : !mobs.mobAiEnabled;
-    showToast(`Mob AI: ${mobs.mobAiEnabled ? 'ON' : 'OFF (Frozen for inspection)'}`);
+    mobs.aiEnabled = state === 'off' ? false : state === 'on' ? true : !mobs.aiEnabled;
+    showToast(`Mob AI: ${mobs.aiEnabled ? 'ON' : 'OFF (Frozen for inspection)'}`);
   } else if (cmd === 'mobdebug') {
     const state = (parts[1] || '').toLowerCase();
     const wantOn = state === 'on' ? true : state === 'off' ? false : !mobs.debugViewEnabled;

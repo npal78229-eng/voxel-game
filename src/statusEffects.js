@@ -67,7 +67,7 @@ export class PlayerStatusEffects {
     this.onStatsChanged = onStatsChanged;
     this.effects = new Map(); // id -> { id, timeLeft, duration, power, stacks, tickAccum }
     this.staggerImmunityTimer = 0; // 3.0s immunity after Poise Break ends so it can NEVER chain-lock
-    this.cameraShakeOffset = { pitch: 0, yaw: 0 };
+    this.cameraShakeOffset = { x: 0, y: 0, pitch: 0, yaw: 0 };
 
     this._initDOMOverlays();
   }
@@ -168,8 +168,10 @@ export class PlayerStatusEffects {
         return false;
       }
       this.showWarningBanner('⚡ POISE BROKEN — STAGGERED!', '#facc15', 900);
-      this.cameraShakeOffset.pitch = (Math.random() - 0.5) * 0.14;
-      this.cameraShakeOffset.yaw = (Math.random() - 0.5) * 0.18;
+      this.cameraShakeOffset.x = (Math.random() - 0.5) * 0.14;
+      this.cameraShakeOffset.y = (Math.random() - 0.5) * 0.14;
+      this.cameraShakeOffset.pitch = this.cameraShakeOffset.y;
+      this.cameraShakeOffset.yaw = this.cameraShakeOffset.x;
     }
 
     // Soul Drain instant effect: removes 50% of current HP (rounded down, never below 1 HP)
@@ -219,6 +221,8 @@ export class PlayerStatusEffects {
   clearAllEffects() {
     this.effects.clear();
     this.staggerImmunityTimer = 0;
+    this.cameraShakeOffset.x = 0;
+    this.cameraShakeOffset.y = 0;
     this.cameraShakeOffset.pitch = 0;
     this.cameraShakeOffset.yaw = 0;
     this._syncHUDVisuals();
@@ -260,6 +264,14 @@ export class PlayerStatusEffects {
         0,
         this.staggerImmunityTimer - deltaTime
       );
+    }
+
+    if (this.effects.has('stagger')) {
+      this.cameraShakeOffset.x = Math.sin(performance.now() * 0.055) * 0.08;
+      this.cameraShakeOffset.y = Math.cos(performance.now() * 0.048) * 0.06;
+    } else {
+      this.cameraShakeOffset.x = 0;
+      this.cameraShakeOffset.y = 0;
     }
 
     if (this.effects.size === 0) {
