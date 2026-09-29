@@ -76,17 +76,22 @@ let currentHit = null;
 // 7. PHASE U4 — RIGGED CHARACTER CONTROLLER
 const character = new CharacterController(scene, camera);
 
-// 8. PHASE U5 & U6 — WEB AUDIO SFX, 14-MOB BLENDER ROSTER & BREAK PARTICLES
-const sfx = new SoundEffectsManager();
-const mobs = new PassiveMobManager(scene, world, 14);
-const particles = new BlockBreakParticles(scene);
+import { PLAYER_COMBAT_CONFIG } from './config/mobs.js';
+import { SAVE_WORLD_VERSION } from './config/ores.js';
 
-// 9. PLAYER HEALTH (10 Hearts = 20 HP) & HUNGER (10 Pips = 20) (Phase U5.6)
+// 8. PHASE U5 & U6 — WEB AUDIO SFX, 16-MOB ROSTER & BREAK PARTICLES
+const sfx = new SoundEffectsManager();
+const particles = new BlockBreakParticles(scene);
+const mobs = new PassiveMobManager(scene, world, sfx, particles);
+
+// 9. PLAYER HEALTH (10 Hearts = 20 HP) & HUNGER (10 Pips = 20) (Phase U5.6 & Task F1)
 const playerStats = {
   hp: 20,
   maxHp: 20,
   hunger: 20,
   maxHunger: 20,
+  invulnerableTimer: 0,
+  slowTimer: 0,
 };
 
 const heartsBarEl = document.getElementById('hearts-bar');
@@ -96,14 +101,14 @@ const underwaterEl = document.getElementById('underwater-overlay');
 const toastEl = document.getElementById('toast-banner');
 
 let toastTimeout = null;
-function showToast(message) {
+function showToast(message, durationMs = 2800) {
   if (!toastEl) return;
   toastEl.textContent = message;
   toastEl.classList.remove('hidden');
   clearTimeout(toastTimeout);
   toastTimeout = setTimeout(() => {
     toastEl.classList.add('hidden');
-  }, 2400);
+  }, durationMs);
 }
 
 function renderSurvivalBars() {
@@ -126,7 +131,16 @@ function renderSurvivalBars() {
 }
 renderSurvivalBars();
 
-function applyPlayerDamage(amount, source = 'Hazard') {
+function applyPlayerDamage(amount, source = 'Hazard', options = {}) {
+  // Task F1: Enforce player invulnerability window so one attack = at most 1 damage event
+  if (playerStats.invulnerableTimer > 0 && source !== 'Fall Damage') {
+    return false;
+  }
+  playerStats.invulnerableTimer = PLAYER_COMBAT_CONFIG.invulnerabilitySeconds;
+  if (options.applySlowEffect) {
+    playerStats.slowTimer = 2.0;
+  }
+
   playerStats.hp = Math.max(0, playerStats.hp - amount);
   sfx.playPlayerHurt();
   renderSurvivalBars();
@@ -144,6 +158,7 @@ function applyPlayerDamage(amount, source = 'Hazard') {
     controls.syncFromCamera();
     renderSurvivalBars();
   }
+  return true;
 }
 
 // 10. PLAYER AABB CONTROLS (Phase U0.3)
@@ -185,9 +200,9 @@ ui = new HotbarAndInventoryUI(inventory, renderer.domElement, (isModalOpen) => {
 const initialStack = ui.getSelectedStack();
 character.setHeldBlockType(initialStack ? initialStack.itemType : null);
 
-// 12. SAVE / LOAD (Phase U1.5 Desktop IPC + Phase 5 IndexedDB Fallback)
+// 12. SAVE / LOAD (Phase U1.5 Desktop IPC + Phase 5 IndexedDB Fallback + Task F4 Version Check)
 const saveStatusEl = document.getElementById('save-status-value');
-const gameContext = { world, controls, inventory, ui, dayNight };
+const gameContext = { world, controls, inventory, ui, dayNight, mobs };
 
 async function performSave(triggerLabel = 'Saved') {
   const res = await saveGame(gameContext);
@@ -199,7 +214,7 @@ async function performSave(triggerLabel = 'Saved') {
         name: 'Primary World',
         seed: world.seed,
         lastPlayed: Date.now(),
-        saveVersion: 2,
+        saveVersion: SAVE_WORLD_VERSION,
       },
       worldData: res,
     });
@@ -235,8 +250,16 @@ async function performNewGame() {
 
 loadGame().then((savedData) => {
   if (savedData) {
-    deserializeGameState(savedData, gameContext);
-    controls.ensureNotInsideBlocks();
+    const result = deserializeGameState(savedData, gameContext);
+    if (result && result.olderVersion) {
+      showToast(
+        'This world was made with an older version (Generating fresh v3 terrain)',
+        5000
+      );
+      clearSavedGame();
+    } else if (result && result.ok) {
+      controls.ensureNotInsideBlocks();
+    }
   }
 });
 
@@ -311,6 +334,26 @@ window.addEventListener('keydown', (event) => {
     return;
   }
 
+  // F4 toggles Task F1/F3 Combat Range & Hitbox Debug Visualizer
+  if (event.code === 'F4') {
+    event.preventDefault();
+    const active = mobs.toggleDebugView();
+    showToast(
+      `F4 Combat Debug: ${active ? 'ON (Hitboxes + Range Rings + Green/Red LOS)' : 'OFF'}`
+    );
+    return;
+  }
+
+  // F6 toggles Task F4 Cave & Ore X-Ray Visualizer
+  if (event.code === 'F6') {
+    event.preventDefault();
+    const xray = world.toggleCaveXRay(controls.playerPosition);
+    showToast(
+      `F6 Cave & Ore X-Ray: ${xray ? 'ON (Stone see-through, Ores & Caves visible)' : 'OFF'}`
+    );
+    return;
+  }
+
   // F2 saves Screenshot (Phase U6.2)
   if (event.code === 'F2') {
     event.preventDefault();
@@ -350,7 +393,7 @@ window.addEventListener('keydown', (event) => {
   if (event.code === 'KeyP') performSave('Manual Save');
   if (event.code === 'KeyT') {
     dayNight.advanceTime(0.12);
-    showToast(`Time: ${dayNight.getLabel()}`);
+    showToast(dayNight.getDebugReadout());
   }
   if (event.code === 'KeyB') {
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -370,8 +413,45 @@ function executeConsoleCommand(cmdStr) {
   if (cmd === 'time') {
     const sub = (parts[2] || parts[1] || 'day').toLowerCase();
     dayNight.timeOfDay =
-      sub === 'night' ? 0.75 : sub === 'sunset' ? 0.5 : 0.25;
-    showToast(`Time set to ${sub}`);
+      sub === 'night' ? 0.72 : sub === 'sunset' ? 0.52 : 0.25;
+    if (!dayNight.isNight()) {
+      mobs.cleanupDaytimeSavedMonsters(controls.playerPosition, false);
+    }
+    showToast(`Time set to ${sub} | ${dayNight.getDebugReadout()}`, 4200);
+  } else if (cmd === 'testrange') {
+    // Task F1: Spawn one melee mob 3 blocks from player and enable F4 debug ring
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    const sx = controls.playerPosition.x + forward.x * 3.0;
+    const sz = controls.playerPosition.z + forward.z * 3.0;
+    const spawned = mobs.spawnMobAt('Shambler', sx, sz);
+    if (!mobs.debugViewEnabled) {
+      mobs.toggleDebugView();
+    }
+    showToast(
+      `Spawned ${spawned} 3.0m away with F4 Debug Ring ON! Walk in/out of ring to test windup & miss.`,
+      5000
+    );
+  } else if (cmd === 'spawnstats') {
+    // Task F2: Print counts per type/class and reasons why last 10 spawn attempts succeeded/failed
+    const report = mobs.getSpawnStatsReport(dayNight.timeOfDay);
+    console.table(report.countsByType);
+    console.table(report.lastAttempts);
+    const c = report.countsByClass;
+    const recentReason = report.lastAttempts[0]?.reason || 'none';
+    showToast(
+      `[SpawnStats] ${report.clockReadout} | Passive:${c.passive} Pred:${c.wild_predator} Night:${c.night_monster} | Last: ${recentReason}`,
+      6000
+    );
+  } else if (cmd === 'orestats') {
+    // Task F4: Print how many blocks of each ore exist in loaded chunks & avg per chunk
+    const oreReport = world.getOreStats();
+    console.table(oreReport);
+    const c = oreReport.counts;
+    const a = oreReport.avgPerChunk;
+    showToast(
+      `[OreStats (${oreReport.loadedChunks} chunks)] Coal:${c.coal_ore}(${a.coal_ore}/c) Iron:${c.iron_ore}(${a.iron_ore}/c) Gold:${c.gold_ore}(${a.gold_ore}/c) Gem:${c.gem_ore}(${a.gem_ore}/c)`,
+      6500
+    );
   } else if (cmd === 'weather') {
     const w = (parts[1] || 'clear').toLowerCase();
     dayNight.setWeather(w);
@@ -394,13 +474,12 @@ function executeConsoleCommand(cmdStr) {
     world.reloadAllChunks(controls.playerPosition);
     showToast(`Teleported to (${parts[1]}, ${parts[2]}, ${parts[3]})`);
   } else if (cmd === 'spawn') {
-    const mobName = parts[1] || 'Shambler';
-    const spawned = mobs.spawnMobAt(
-      mobName,
-      controls.playerPosition.x + 3,
-      controls.playerPosition.z - 3
-    );
-    showToast(`Spawned ${spawned}`);
+    const mobName = parts[1] || 'Hexcaster';
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    const tx = currentHit ? currentHit.x : controls.playerPosition.x + forward.x * 4.5;
+    const tz = currentHit ? currentHit.z : controls.playerPosition.z + forward.z * 4.5;
+    const spawned = mobs.spawnMobAt(mobName, tx, tz);
+    showToast(`Spawned ${spawned} at (${tx.toFixed(1)}, ${tz.toFixed(1)})`);
   } else if (cmd === 'heal') {
     playerStats.hp = 20;
     playerStats.hunger = 20;
@@ -560,13 +639,26 @@ function animate() {
     isMoving
   );
 
+  if (playerStats.invulnerableTimer > 0) {
+    playerStats.invulnerableTimer = Math.max(
+      0,
+      playerStats.invulnerableTimer - deltaTime
+    );
+  }
+  if (playerStats.slowTimer > 0) {
+    playerStats.slowTimer = Math.max(0, playerStats.slowTimer - deltaTime);
+  }
+
   // 3. Update Sky, Mobs & Particles
+  camera.getWorldDirection(lookDirection);
   dayNight.update(deltaTime, controls.playerPosition);
   mobs.update(
     deltaTime,
     controls.playerPosition,
     dayNight.isNight(),
-    (dmg, mobType) => applyPlayerDamage(dmg, mobType)
+    (dmg, mobType, opts) => applyPlayerDamage(dmg, mobType, opts),
+    { x: 0, z: 0 },
+    lookDirection
   );
   particles.update(deltaTime);
 
@@ -574,7 +666,6 @@ function animate() {
   world.updateChunks(controls.playerPosition, false);
 
   // 5. DDA Raycast
-  camera.getWorldDirection(lookDirection);
   currentHit = raycastVoxelDDA(world, controls.playerPosition, lookDirection);
   highlighter.update(currentHit);
 

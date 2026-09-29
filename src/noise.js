@@ -1,5 +1,8 @@
+import { evaluateCaveAt } from './world/gen/caves.js';
+import { DeterministicOreGenerator } from './world/gen/ores.js';
+
 // ============================================================================
-// Phase U3 — Multi-Biome Seeded Simplex Terrain, Ores, Caves, Trees & Structures
+// Phase U3 & Task F4 — Multi-Biome Seeded Simplex Terrain, 3D Caves, Vein Ores & Trees
 // ============================================================================
 
 export const SEA_LEVEL = 18;
@@ -13,8 +16,8 @@ export const TERRAIN_CONFIG = {
   lacunarity: 2.1,
   baseHeight: 14,
   amplitude: 28,
-  caveScale: 0.065,
-  caveThreshold: 0.61,
+  caveScale: 0.044,
+  caveThreshold: 0.14,
 };
 
 export class SeededSimplexNoise {
@@ -23,6 +26,7 @@ export class SeededSimplexNoise {
     this.perm = new Uint8Array(512);
     this.permMod12 = new Uint8Array(512);
     this._initPermutation(seed);
+    this.oreGen = new DeterministicOreGenerator(this.seed, this);
   }
 
   _initPermutation(seed) {
@@ -263,11 +267,9 @@ export class SeededSimplexNoise {
     return Math.round(TERRAIN_CONFIG.baseHeight + h * TERRAIN_CONFIG.amplitude + ridge);
   }
 
-  isCaveVoid(wx, wy, wz, surfaceY) {
-    if (wy <= 0 || wy >= surfaceY - 1) return false;
-    const s = TERRAIN_CONFIG.caveScale;
-    const n = this.noise3D(wx * s, wy * s * 1.25, wz * s);
-    return n > TERRAIN_CONFIG.caveThreshold;
+  isCaveVoid(wx, wy, wz, surfaceY, biomeId = 'plains') {
+    const res = evaluateCaveAt(this, wx, wy, wz, surfaceY, SEA_LEVEL, biomeId);
+    return res !== null;
   }
 
   /**
@@ -285,7 +287,6 @@ export class SeededSimplexNoise {
     const biome = this.getBiomeAt(tx, tz);
     if (biome.treeChance <= 0) return null;
 
-    // Space trees on a 4-block grid so canopies don't overlap chaotically
     if ((tx & 3) !== 0 || (tz & 3) !== 0) return null;
     if (this._hash2(tx, tz) < biome.treeChance * 4) {
       return { surfaceY, biomeId: biome.id };
@@ -293,11 +294,7 @@ export class SeededSimplexNoise {
     return null;
   }
 
-  /**
-   * Returns tree trunk/canopy block at (wx, wy, wz) even when canopy crosses chunk borders.
-   */
   _getTreeBlockAt(wx, wy, wz) {
-    // Search 4-block grid anchors within radius 2
     const baseTx = wx & ~3;
     const baseTz = wz & ~3;
 
@@ -313,21 +310,26 @@ export class SeededSimplexNoise {
         const relY = wy - tree.surfaceY;
         if (relY < 1 || relY > 6) continue;
 
-        // Desert cactus (single column using real cactus_side & cactus_top)
         if (tree.biomeId === 'desert') {
           if (dx === 0 && dz === 0 && relY <= 3) return 'cactus';
           continue;
         }
 
         const isBirch = tree.biomeId === 'birch_forest';
-        const isPine = tree.biomeId === 'taiga' || tree.biomeId === 'tundra' || tree.biomeId === 'mountains';
+        const isPine =
+          tree.biomeId === 'taiga' ||
+          tree.biomeId === 'tundra' ||
+          tree.biomeId === 'mountains';
         const logType = isBirch ? 'birch_wood' : isPine ? 'pine_log' : 'wood';
-        const leafType = isBirch ? 'birch_leaves' : isPine ? 'pine_leaves' : 'leaves';
+        const leafType = isBirch
+          ? 'birch_leaves'
+          : isPine
+          ? 'pine_leaves'
+          : 'leaves';
 
         if (dx === 0 && dz === 0 && relY <= 4) {
           return logType;
         }
-        // Canopy leaves at relY 3..5
         if (relY >= 3 && relY <= 5) {
           const dist = Math.abs(dx) + Math.abs(dz);
           if (relY === 5 && dist <= 1) return leafType;
@@ -353,10 +355,20 @@ export class SeededSimplexNoise {
       if (wy <= SEA_LEVEL) {
         return biome.id === 'tundra' && wy === SEA_LEVEL ? 'ice' : 'water';
       }
-      if (wy === surfaceY + 1 && surfaceY > SEA_LEVEL + 1 && ((wx & 15) === 7 && (wz & 15) === 7)) {
+      if (
+        wy === surfaceY + 1 &&
+        surfaceY > SEA_LEVEL + 1 &&
+        (wx & 15) === 7 &&
+        (wz & 15) === 7
+      ) {
         const patchHash = this._hash2(wx + 31, wz - 17);
         if (patchHash < 0.08 && biome.id === 'plains') return 'pumpkin';
-        if (patchHash >= 0.08 && patchHash < 0.15 && (biome.id === 'swamp' || biome.id === 'forest')) return 'melon';
+        if (
+          patchHash >= 0.08 &&
+          patchHash < 0.15 &&
+          (biome.id === 'swamp' || biome.id === 'forest')
+        )
+          return 'melon';
       }
       if (wy <= surfaceY + 6) {
         return this._getTreeBlockAt(wx, wy, wz);
@@ -364,9 +376,18 @@ export class SeededSimplexNoise {
       return null;
     }
 
-    // Underground cave carving (with deep glowing magma pools at y=1..3)
-    if (this.isCaveVoid(wx, wy, wz, surfaceY)) {
-      return wy <= 2 ? 'lava' : null;
+    // Task F4: Continuous 3D Spaghetti Tunnels, Cavern Chambers, Hillside Entrances & Lava Pools
+    const caveStatus = evaluateCaveAt(
+      this,
+      wx,
+      wy,
+      wz,
+      surfaceY,
+      SEA_LEVEL,
+      biome.id
+    );
+    if (caveStatus !== null) {
+      return caveStatus === 'lava' ? 'lava' : null;
     }
 
     // Surface & Subsurface Biome Blocks
@@ -387,20 +408,22 @@ export class SeededSimplexNoise {
       return wy <= 2 ? 'obsidian' : 'mossy_cobble';
     }
 
-    // Depth-based Ore Veins (Phase U3.3 — Coal, Iron, Gold, Redstone, Emerald, Diamond/Crystal)
-    const oreNoise = this.noise3D(wx * 0.22 + 90, wy * 0.22, wz * 0.22 - 90);
-    if (oreNoise > 0.71) {
-      const oreVariant = this._hash2(wx * 3 + wy, wz * 5 - wy);
-      if (wy < 9) {
-        if (oreVariant < 0.34) return 'gem_ore';
-        if (oreVariant < 0.68) return 'redstone_ore';
-        return 'emerald_ore';
-      }
-      if (wy < 15) {
-        return oreVariant < 0.6 ? 'gold_ore' : 'redstone_ore';
-      }
-      if (wy < 24) return 'iron_ore';
-      return 'coal_ore';
+    // Task F4: Deterministic Cross-Chunk Seeded Vein Ores + Cave Wall Exposure Bonus
+    const isAdjacentToCave =
+      evaluateCaveAt(this, wx + 1, wy, wz, surfaceY, SEA_LEVEL, biome.id) === 'air' ||
+      evaluateCaveAt(this, wx - 1, wy, wz, surfaceY, SEA_LEVEL, biome.id) === 'air' ||
+      evaluateCaveAt(this, wx, wy + 1, wz, surfaceY, SEA_LEVEL, biome.id) === 'air' ||
+      evaluateCaveAt(this, wx, wy - 1, wz, surfaceY, SEA_LEVEL, biome.id) === 'air';
+
+    const oreType = this.oreGen.getOreAt(
+      wx,
+      wy,
+      wz,
+      surfaceY,
+      isAdjacentToCave
+    );
+    if (oreType) {
+      return oreType;
     }
 
     return 'stone';

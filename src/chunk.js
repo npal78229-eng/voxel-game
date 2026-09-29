@@ -181,9 +181,28 @@ export class VoxelChunk {
   rebuildMesh() {
     const opaqueEntries = [];
     const transEntries = [];
+    const xrayMode = Boolean(this.world.caveXRayEnabled);
+    const XRAY_SET = new Set([
+      'coal_ore',
+      'iron_ore',
+      'redstone_ore',
+      'gold_ore',
+      'emerald_ore',
+      'gem_ore',
+      'lava',
+      'obsidian',
+      'bedrock',
+    ]);
 
     for (const [key, blockType] of this.blocks.entries()) {
       const [wx, wy, wz] = this.world.parseKey(key);
+      if (xrayMode) {
+        if (XRAY_SET.has(blockType)) {
+          opaqueEntries.push([wx, wy, wz, blockType]);
+        }
+        continue;
+      }
+
       const def = BLOCK_BY_ID[blockType];
       if (def && def.transparent) {
         if (!this.blocks.has(this.world.coordKey(wx, wy + 1, wz))) {

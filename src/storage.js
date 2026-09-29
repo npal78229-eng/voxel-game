@@ -2,6 +2,9 @@
 // Phase 5 — Persistence & Save/Load (IndexedDB Seeded Diffs + Autosave)
 // ============================================================================
 
+import { SAVE_WORLD_VERSION } from './config/ores.js';
+import { isNightTime } from './config/spawning.js';
+
 const DB_NAME = 'VoxelGameDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'saves';
@@ -27,13 +30,11 @@ function openDatabase() {
 }
 
 /**
- * Task 5A — Builds a plain serializable save payload containing ONLY modified
- * block diffs (`Array.from(world.modifiedBlocks.entries())`), deterministic seed,
- * player transform, and stack inventory.
+ * Task 5A & Task F4 — Builds a serializable save payload with SAVE_WORLD_VERSION = 3.
  */
-export function serializeGameState({ world, controls, inventory, ui, dayNight }) {
+export function serializeGameState({ world, controls, inventory, ui, dayNight, mobs }) {
   return {
-    version: 1,
+    version: SAVE_WORLD_VERSION,
     savedAt: new Date().toISOString(),
     seed: world.seed,
     player: {
@@ -45,23 +46,45 @@ export function serializeGameState({ world, controls, inventory, ui, dayNight })
       euler: [controls.euler.x, controls.euler.y],
       isThirdPerson: Boolean(controls.isThirdPerson),
     },
-    // Convert Map<"wx,wy,wz", blockType|null> explicitly to array of [key, value] entries
     modifiedBlocks: Array.from(world.modifiedBlocks.entries()),
     inventorySlots: inventory.slots.map((slot) =>
       slot ? { itemType: slot.itemType, count: slot.count } : null
     ),
     selectedHotbarIndex: ui ? ui.selectedIndex : 0,
     dayCycleTime: dayNight ? dayNight.timeOfDay : 0.25,
+    savedMobs: mobs
+      ? mobs.mobs
+          .filter((m) => m.hp > 0)
+          .map((m) => ({
+            type: m.spec.type,
+            behaviorClass: m.spec.behaviorClass,
+            x: m.group.position.x,
+            z: m.group.position.z,
+            hp: m.hp,
+          }))
+      : [],
   };
 }
 
 /**
- * Task 5A & 5C — Restores world diffs, player position/look, and inventory from save data.
+ * Task F4 & Task F2 — Checks save version (warns "This world was made with an older version"
+ * if version < 3) and removes night_monsters when loading during the day.
  */
-export function deserializeGameState(data, { world, controls, inventory, ui, dayNight }) {
-  if (!data || typeof data !== 'object') return false;
+export function deserializeGameState(
+  data,
+  { world, controls, inventory, ui, dayNight, mobs }
+) {
+  if (!data || typeof data !== 'object') return { ok: false };
 
-  // 1. Restore seed & modified block diffs Map
+  const savedVer = Number(data.version) || 1;
+  if (savedVer < SAVE_WORLD_VERSION) {
+    return {
+      ok: false,
+      olderVersion: true,
+      warning: 'This world was made with an older version',
+    };
+  }
+
   if (typeof data.seed === 'number' && data.seed !== world.seed) {
     world.setSeed(data.seed);
   }
@@ -74,7 +97,6 @@ export function deserializeGameState(data, { world, controls, inventory, ui, day
     }
   }
 
-  // 2. Restore player position, look angle, and camera mode
   if (data.player && Array.isArray(data.player.position)) {
     const [px, py, pz] = data.player.position;
     controls.playerPosition.set(px, py, pz);
@@ -88,10 +110,8 @@ export function deserializeGameState(data, { world, controls, inventory, ui, day
     controls.update(0);
   }
 
-  // 3. Rebuild chunks around restored player position with diffs applied
   world.reloadAllChunks(controls.playerPosition);
 
-  // 4. Restore inventory slots & selected hotbar slot
   if (Array.isArray(data.inventorySlots)) {
     for (let i = 0; i < inventory.slots.length; i++) {
       const savedSlot = data.inventorySlots[i];
@@ -111,7 +131,13 @@ export function deserializeGameState(data, { world, controls, inventory, ui, day
     dayNight.timeOfDay = data.dayCycleTime;
   }
 
-  return true;
+  // Task F2: If loading during the DAY, strip any saved night_monster not near player
+  if (mobs) {
+    const isNight = isNightTime(dayNight ? dayNight.timeOfDay : 0.25);
+    mobs.cleanupDaytimeSavedMonsters(controls.playerPosition, isNight);
+  }
+
+  return { ok: true, olderVersion: false };
 }
 
 /**

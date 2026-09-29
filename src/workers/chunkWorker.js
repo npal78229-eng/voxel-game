@@ -21,7 +21,7 @@ function coordKey(x, y, z) {
 }
 
 self.onmessage = (event) => {
-  const { jobId, chunkX, chunkZ, seed, diffs } = event.data;
+  const { jobId, chunkX, chunkZ, seed, diffs, caveXRay } = event.data;
   ensureNoise(seed);
 
   const startX = chunkX * CHUNK_SIZE;
@@ -108,13 +108,32 @@ self.onmessage = (event) => {
   const opaqueEntries = [];
   const transparentEntries = [];
 
+  const XRAY_VISIBLE_BLOCKS = new Set([
+    'coal_ore',
+    'iron_ore',
+    'redstone_ore',
+    'gold_ore',
+    'emerald_ore',
+    'gem_ore',
+    'lava',
+    'obsidian',
+    'bedrock',
+  ]);
+
   for (const [key, blockType] of blocks.entries()) {
     const [wx, wy, wz] = key.split(',').map(Number);
     const def = BLOCK_BY_ID[blockType];
     const isTrans = Boolean(def && def.transparent);
 
+    // Task F4: F6 Cave X-Ray Mode makes stone/dirt see-through so ores & cave lava/boundaries glow
+    if (caveXRay) {
+      if (XRAY_VISIBLE_BLOCKS.has(blockType)) {
+        opaqueEntries.push([wx, wy, wz, blockType]);
+      }
+      continue;
+    }
+
     if (isTrans) {
-      // Render water/ice/glass if top or any neighbor isn't identical transparent block
       if (
         !hasAnyAt(wx, wy + 1, wz) ||
         !hasAnyAt(wx + 1, wy, wz) ||

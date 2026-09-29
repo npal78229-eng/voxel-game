@@ -113,6 +113,7 @@ export class VoxelWorld {
 
     this.lastPlayerChunkX = null;
     this.lastPlayerChunkZ = null;
+    this.caveXRayEnabled = false;
 
     // Phase U0.2 — Initialize Web Worker Pool (hardwareConcurrency - 1, clamped 1..6)
     this.workers = [];
@@ -192,6 +193,7 @@ export class VoxelWorld {
         chunkZ: next.chunkZ,
         seed: this.seed,
         diffs: Array.from(this.modifiedBlocks.entries()),
+        caveXRay: Boolean(this.caveXRayEnabled),
       });
     }
   }
@@ -479,6 +481,50 @@ export class VoxelWorld {
       reductionPct,
       diffCount: this.modifiedBlocks.size,
       workerCount: this.workers.length,
+      caveXRayEnabled: this.caveXRayEnabled,
+    };
+  }
+
+  /**
+   * Task F4: Toggles F6 Cave X-Ray Mode (stone/dirt see-through except ores & cave boundaries)
+   */
+  toggleCaveXRay(playerPosition) {
+    this.caveXRayEnabled = !this.caveXRayEnabled;
+    this.reloadAllChunks(playerPosition);
+    return this.caveXRayEnabled;
+  }
+
+  /**
+   * Task F4: /orestats — Computes total blocks of each ore in loaded chunks & average per chunk.
+   */
+  getOreStats() {
+    const counts = {
+      coal_ore: 0,
+      iron_ore: 0,
+      redstone_ore: 0,
+      gold_ore: 0,
+      emerald_ore: 0,
+      gem_ore: 0,
+    };
+    const numChunks = Math.max(1, this.chunks.size);
+
+    for (const chunk of this.chunks.values()) {
+      for (const blockType of chunk.blocks.values()) {
+        if (counts[blockType] !== undefined) {
+          counts[blockType]++;
+        }
+      }
+    }
+
+    const avgPerChunk = {};
+    for (const [k, v] of Object.entries(counts)) {
+      avgPerChunk[k] = Number((v / numChunks).toFixed(2));
+    }
+
+    return {
+      loadedChunks: this.chunks.size,
+      counts,
+      avgPerChunk,
     };
   }
 }

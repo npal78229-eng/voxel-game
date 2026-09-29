@@ -776,18 +776,67 @@ export function build_flesh_ghoul() {
   return c.finalize();
 }
 
+function build_hexcaster() {
+  const c = makeCollector();
+  const robe = get_mat('Hex_Robe', [0.14, 0.05, 0.28], 0.85, 0.0, 0.0, [0.06, 0.02, 0.14]);
+  const trim = get_mat('Hex_Trim', [0.58, 0.22, 0.88], 0.4, 0.2, 1.5);
+  const void_m = get_mat('Hex_Void', [0.02, 0.01, 0.05], 0.98);
+  const eye_glow = get_mat('Hex_Eye', [0.85, 0.35, 1.0], 0.1, 0.0, 16.0);
+  const hand_mat = get_mat('Hex_Hand', [0.68, 0.42, 0.95], 0.2, 0.1, 6.0);
+
+  c.add_cone('RobeLower', [0, 0, 0.72], 0.54, 0.24, 1.35, robe);
+  c.add_sphere('Torso', [0, 0, 1.28], [0.28, 0.34, 0.38], robe);
+  c.add_cone('Mantle', [0, 0, 1.48], 0.42, 0.26, 0.28, trim);
+
+  c.add_cone('Hood', [0.04, 0, 1.84], 0.32, 0.08, 0.48, robe, [0, 8, 0]);
+  c.add_sphere('FaceVoid', [0.14, 0, 1.76], [0.16, 0.18, 0.2], void_m);
+  for (const s of [-1, 1]) {
+    c.add_sphere(`Eye_${s}`, [0.27, s * 0.08, 1.78], [0.045, 0.055, 0.032], eye_glow);
+    c.add_sphere(`Arm_${s}`, [0.46, s * 0.36, 1.32], [0.11, 0.11, 0.11], hand_mat);
+    c.add_cone(`RuneShard_${s}`, [0.54, s * 0.36, 1.48], 0.05, 0.01, 0.22, eye_glow);
+  }
+
+  return c.finalize();
+}
+
+function build_bonewalker() {
+  const c = makeCollector();
+  const bone = get_mat('Bone_White', [0.82, 0.79, 0.72], 0.65, 0.0, 0.0, [0.62, 0.58, 0.52]);
+  const dark = get_mat('Bone_Dark', [0.12, 0.12, 0.14], 0.9);
+  const eye = get_mat('Bone_Eye', [0.35, 0.88, 1.0], 0.1, 0.0, 12.0);
+  const wood = get_mat('Bow_Wood', [0.38, 0.22, 0.09], 0.7);
+
+  c.add_cylinder('Pelvis', [0, 0, 0.76], 0.18, 0.14, bone);
+  c.add_cylinder('Spine', [0, 0, 1.12], 0.06, 0.65, bone);
+  for (let r = 0; r < 3; r++) {
+    c.add_sphere(`Rib_${r}`, [0.04, 0, 1.02 + r * 0.14], [0.2, 0.26, 0.05], bone);
+  }
+  c.add_sphere('Head', [0.04, 0, 1.62], [0.22, 0.2, 0.24], bone);
+  for (const s of [-1, 1]) {
+    c.add_sphere(`Eye_${s}`, [0.22, s * 0.08, 1.64], [0.04, 0.045, 0.035], eye);
+    c.add_cylinder(`Leg_${s}`, [0, s * 0.14, 0.38], 0.055, 0.72, bone);
+    c.add_cylinder(`Arm_${s}`, [0.24, s * 0.28, 1.26], 0.05, 0.58, bone, [0, 65, 0]);
+  }
+  c.add_cylinder('BowStave', [0.54, -0.22, 1.26], 0.035, 0.78, wood, [12, 0, 0]);
+  c.add_cylinder('BowString', [0.46, -0.22, 1.26], 0.012, 0.76, dark, [12, 0, 0]);
+
+  return c.finalize();
+}
+
 export const BLENDER_MOB_BUILDERS = {
   Pig: build_pig,
   Snorter: build_pig,
   Dog: build_dog,
   Cow: build_cow,
-  'Moo-Beast': build_cow,
+  Moobeast: build_cow,
   Sheep: build_sheep,
   Woolback: build_sheep,
   Wolf: build_wolf,
+  FangWolf: build_wolf,
   Rabbit: build_rabbit,
   Bird: build_bird,
   Monkey: build_monkey,
+  TreeswingApe: build_monkey,
   Chicken: build_chicken,
   Cluck: build_chicken,
   Cat: build_cat,
@@ -799,6 +848,8 @@ export const BLENDER_MOB_BUILDERS = {
   Wraith: build_grim_wraith,
   FleshGhoul: build_flesh_ghoul,
   Bloater: build_flesh_ghoul,
+  Hexcaster: build_hexcaster,
+  Bonewalker: build_bonewalker,
 };
 
 export const ALL_14_BLENDER_MOB_TYPES = [
@@ -816,6 +867,8 @@ export const ALL_14_BLENDER_MOB_TYPES = [
   'BloodCrawler',
   'GrimWraith',
   'FleshGhoul',
+  'Hexcaster',
+  'Bonewalker',
 ];
 
 export function createBlenderMobInstance(mobType = 'Pig') {
