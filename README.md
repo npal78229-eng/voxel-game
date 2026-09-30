@@ -3,11 +3,12 @@
 [![Engine](https://img.shields.io/badge/Three.js-r170-black?logo=threedotjs)](https://threejs.org/)
 [![Bundler](https://img.shields.io/badge/Vite-6.4-646CFF?logo=vite)](https://vitejs.dev/)
 [![Desktop](https://img.shields.io/badge/Electron-Desktop_Ready-47848F?logo=electron)](https://www.electronjs.org/)
-[![Phases](https://img.shields.io/badge/Roadmap-Phases_0--6_%2B_U0--U7_Complete-4ade80)]()
+[![QA Suite](https://img.shields.io/badge/QA_Suite-48%2F48_Passing-4ade80)]()
+[![Fluids](https://img.shields.io/badge/Fluids-Minecraft_Physics_Online-38bdf8)]()
 
 **Voxel Realms** is a full-featured, browser- and desktop-ready 3D voxel sandbox game built from the ground up using **Three.js**, **Vite**, **ES Module Web Workers**, **Web Audio API**, **IndexedDB**, and **Electron**.
 
-It implements **all 7 Core Development Phases (`Phases 0–6`)** plus **all 8 Advanced Upgrade Phases (`Phases U0–U7`)**, combining multi-threaded procedural terrain generation, 10 distinct biomes, axis-separated AABB collision physics, ambient occlusion, stack-based inventory & crafting, articulated skeletal animations, passive/hostile mob combat, and diff-based world persistence.
+It implements **all 7 Core Development Phases (`Phases 0–6`)**, **all 8 Advanced Upgrade Phases (`Phases U0–U7`)**, and the complete **Minecraft-Style Fluid Physics Simulation, Multi-Attack Combat AI, 4-Season Climate Engine, and 14 Sculpted Blender Mobs**.
 
 ---
 
@@ -17,14 +18,15 @@ It implements **all 7 Core Development Phases (`Phases 0–6`)** plus **all 8 Ad
 ```mermaid
 flowchart LR
     subgraph MainThread["Main Thread (60 FPS Render Loop)"]
-        Player["FirstPersonController\n(0.6x1.8 AABB Physics)"]
-        World["VoxelWorld\n(Chunk Priority Queue)"]
-        DDA["3D DDA Raycaster\n(6m Reach + Combat)"]
-        Scene["Three.js WebGLRenderer\n(Opaque + Water Passes)"]
+        Player["FirstPersonController\n• 0.6x1.8 AABB Physics\n• Swimming & Buoyancy\n• Flow Push & Drowning Meter"]
+        World["VoxelWorld\n• Chunk Priority Queue\n• Fluid Meshes & Atlas Shader"]
+        FluidSim["FluidSimulator\n• 0.25s Water / 1.5s Lava Ticks\n• Hole Search & Infinite Sources\n• Obsidian/Cobblestone Reactions"]
+        DDA["3D DDA Raycaster\n• 6m Reach + Combat Raycast"]
+        Scene["Three.js WebGLRenderer\n• Opaque + Trans Mesh Passes\n• Submerged Underwater/Lava Fog"]
     end
 
     subgraph WorkerPool["Web Worker Pool (1–6 Threads)"]
-        Worker["chunkWorker.js\n• 2D/3D Seeded Simplex Noise\n• 10 Biomes, Ores, Caves & Trees\n• 6-Neighbor Exposure Culling\n• Per-Voxel Ambient Occlusion"]
+        Worker["chunkWorker.js\n• 2D/3D Seeded Simplex Noise\n• 13 Biomes, Ores, Caves & Trees\n• 6-Neighbor Exposure Culling\n• Per-Voxel Ambient Occlusion"]
     end
 
     subgraph Storage["Dual Save Backend (Diff-Only)"]
@@ -34,87 +36,108 @@ flowchart LR
 
     Player -->|"Player Position (x, y, z)"| World
     World -->|"{ chunkX, chunkZ, seed, diffs }"| Worker
-    Worker -->|"Zero-Copy Transferable Float32Arrays\n(opaqueMatrices, opaqueColors, transMatrices)"| World
+    Worker -->|"Transferable Float32Arrays\n(opaqueMatrices, opaqueColors, plantMatrices)"| World
+    FluidSim -->|"Fluid Quads & Animated Strips"| World
     World -->|"GPU Buffer Upload (<0.2ms)"| Scene
-    DDA -->|"Block Edits (world.modifiedBlocks)"| World
+    DDA -->|"Block Edits & Source Placement"| World
+    World -->|"Block Changes & Neighbors"| FluidSim
     World -->|"Seed + Block Diffs + Inventory"| IDB
     World -->|"Atomic Temp-Write + Rename"| IPC
 ```
 
 ### 2. Core Engineering Principles
-1. **Single Source of Truth Data Model:** Every chunk owns a `Map<"wx,wy,wz", blockType>` representing its solid and liquid blocks. Visual `THREE.InstancedMesh` buffers are strictly derived from this data model.
-2. **Off-Main-Thread Web Worker Meshing (`0 ms` UI Stalls):** Terrain noise sampling (`fbm2D` + `noise3D`), tree generation, 6-neighbor exposure culling, and per-voxel Ambient Occlusion (`0..3` corner occluders) execute inside a pool of background Web Workers (`src/workers/chunkWorker.js`) and return zero-copy transferable `Float32Array` buffers (`opaqueMatrices`, `opaqueColors`, `transMatrices`, `transColors`).
-3. **World-Coordinate Seamless Noise Sampling:** Every chunk `(chunkX, chunkZ)` samples 2D/3D Simplex noise strictly in **world coordinates** `(chunkX * 16 + localX, wy, chunkZ * 16 + localZ)` so neighboring chunk borders stitch together with zero height seams.
-4. **Deterministic Seeded Diff Persistence:** Because procedural generation is 100% deterministic for a given numeric `seed` (`133742`), save files store **only player modifications** (`world.modifiedBlocks` diffs: broken blocks as `null` and placed blocks as `blockType`), keeping save payloads tiny regardless of how far the player explores.
+1. **Single Source of Truth Data Model:** Every chunk owns a `Map<"wx,wy,wz", blockType>` representing its solid and transparent voxels, and a dedicated `fluids` map for simulated water and lava flow. Visual meshes are strictly derived from this state.
+2. **Off-Main-Thread Web Worker Meshing (`0 ms` UI Stalls):** Terrain noise sampling (`fbm2D` + `noise3D`), tree generation, 6-neighbor exposure culling, and per-voxel Ambient Occlusion execute inside a pool of background Web Workers (`src/workers/chunkWorker.js`) using zero-copy transferable `Float32Array` buffers.
+3. **Discrete Fluid Simulation Budgeting:** Liquid updates run on a scheduled priority queue capped at 200 block updates per frame with 100ms debounced chunk re-meshing (`src/fluids/FluidSimulator.js`).
+4. **Deterministic Seeded Diff Persistence:** Natural terrain and settled water generate deterministically from the numeric seed (`133742`). Save files store **only player modifications** (`world.modifiedBlocks` diffs: broken blocks as `null` and placed blocks as `blockType`), keeping save payloads tiny regardless of world exploration distance.
 
 ---
 
-## 📁 Repository Structure & Module Map
+## 🌊 Minecraft-Style Fluid Physics Simulation (`src/fluids/`)
 
-```text
-voxel-game/
-├── electron/                        # Phase U1: Native Desktop Application Shell
-│   ├── main.cjs                     # Single-instance lock, window state, splash & atomic rolling saves
-│   ├── preload.cjs                  # Secure contextBridge API (window.voxelDesktopAPI)
-│   └── splash.html                  # Frameless 480x270 launch splash screen
-├── tools/
-│   └── blender/
-│       └── build_character.py       # Phase U4: Headless Blender Python (bpy) character & GLB generator
-├── src/
-│   ├── workers/
-│   │   └── chunkWorker.js           # Phase U0.2 & U2.2: Off-thread terrain, 10 biomes, ores & AO mesher
-│   ├── blocks.js                    # 21 original block definitions + offscreen isometric 3D icon renderer
-│   ├── character.js                 # Phase 4B & U4: Articulated blocky rig, GLTFLoader & AnimationMixer
-│   ├── chunk.js                     # Phase 3 & U2.5: 16x16x16 VoxelChunk (Opaque + Transparent Water pass)
-│   ├── controls.js                  # Phase 1B & U0.3: 0.6x1.8 AABB collider physics, jump & Fly Mode
-│   ├── hotbar.js                    # Phase 2C, 4A & U6: Isometric icon Hotbar, 36-slot Inventory & Crafting
-│   ├── inventory.js                 # Phase 4A: Stack-based inventory (max 64) & data-driven CRAFTING_RECIPES
-│   ├── lighting.js                  # Phase 1C & U2.4: Ambient, Hemisphere & texel-snapped Directional Sun
-│   ├── main.js                      # Main 60 FPS loop, Survival HUD, Combat, F3 Debug & '/' Console
-│   ├── noise.js                     # Phase 3 & U3: Seeded 2D/3D Simplex noise, 10 biomes, ores & trees
-│   ├── polish.js                    # Phase 6, U2.3 & U5: Web Audio SFX, Sun/Moon/Stars/Clouds & Mob Combat AI
-│   ├── raycaster.js                 # Phase 2A: Fast 3D DDA Voxel Traversal raycaster & wireframe box
-│   ├── storage.js                   # Phase 5 & U1.5: IndexedDB + Electron IPC diff save/load engine
-│   ├── style.css                    # Pixel-art HUD, Survival bars, Modals & F3 diagnostic styling
-│   └── world.js                     # Phase 3 & U0.2: VoxelWorld chunk manager & Web Worker pool dispatcher
-├── index.html                       # Entry HTML with Loading Screen, Survival HUD, Modals & Command Bar
-├── vite.config.js                   # Relative base './' for Electron + Three.js chunk splitting
-├── package.json                     # Project scripts (dev, build, preview, app:dev, app:pack, app:dist)
-├── CHANGELOG.md                     # Version history across v1.0 (Phases 0–6) and v2.0 (Phases U0–U7)
-├── DESIGN.md                        # Running architectural specification & performance benchmarks
-└── README.md                        # Project documentation
+Voxel Realms features a faithful, high-performance fluid simulation reproducing Minecraft's liquid mechanics:
+
+```mermaid
+flowchart TD
+    Source["Water / Lava Source Placed (Level 0)"] --> CheckDown{"Block Below Open?"}
+    CheckDown -- Yes --> Fall["Fall Vertically Down\n(Level 1 / Level 2, falling=true)\nZero Horizontal Spread while Falling"]
+    CheckDown -- No --> HoleSearch{"Hole Search\n(Shortest Drop Path)"}
+    HoleSearch -- Drop Found --> FlowDrop["Direct Flow Exclusively\nToward Shortest Cliff/Drop"]
+    HoleSearch -- Flat Ground --> Spread["Horizontal Spread\n• Water: 7 Blocks (Levels 1..7)\n• Lava: 3 Blocks (Levels 0, 2, 4, 6)"]
+    Fall --> FloorReached["Hit Floor"] --> HoleSearch
+    Spread --> MeetLava{"Water Touches Lava?"}
+    MeetLava -- Water on Lava Source --> Obsidian["Obsidian"]
+    MeetLava -- Water on Flowing Lava --> Cobble["Cobblestone"]
+    MeetLava -- Lava Down on Water --> Stone["Stone"]
 ```
 
+### 1. Simulation Rules & Reactions
+- **Water Behavior:** 0.25s tick delay; spreads horizontally up to 7 blocks (levels 1–7); drops by 1 level per block; 4-block hole search pathfinding.
+- **Lava Behavior:** 1.5s tick delay (slower, viscous); spreads up to 3 blocks (levels 0, 2, 4, 6); drops by 2 levels per block; 2-block hole search pathfinding.
+- **Infinite Water Sources:** Formed whenever an empty block has 2+ horizontally adjacent water sources over a solid or source floor.
+- **Flow Retreat:** When a source block is removed, flowing liquid retreats and clears cleanly without leaving orphan fluid blocks.
+- **Thermal Block Reactions:**
+  - Water flowing horizontally over a Lava Source $\rightarrow$ **Obsidian**.
+  - Water touching Flowing Lava $\rightarrow$ **Cobblestone**.
+  - Lava falling vertically onto Water $\rightarrow$ **Stone**.
+
+### 2. Variable-Height Quad Meshing & Animations (`src/fluids/FluidMesher.js`)
+- **Variable Quad Heights:** Fluid surface height is calculated per corner using the Minecraft formula:
+  $$h = \frac{8 - \text{level}}{9.0}$$
+  (Falling columns and source blocks with fluid above render at a full height of `1.0`).
+- **Smooth 4-Corner Averaging:** Each vertex height is averaged across adjacent fluid blocks to generate smooth downward slopes.
+- **Animated 16-Frame Strips:** Real-time 10 Hz texture frame animation cycling 16 frames on 32×512 vertical strips for `water_still.png`, `water_flow.png`, `lava_still.png`, and `lava_flow.png`.
+
+### 3. Entity Buoyancy, Swimming & Drowning Physics (`src/controls.js`)
+- **Water Swimming:** Holding `Space` swims upward at **3.5 m/s**; sinking is clamped to a **2.0 m/s** terminal velocity; horizontal speed is damped to **0.5×** (or **0.72×** while sprinting).
+- **Fall Damage Negation:** Entering water or lava instantly clears accumulated fall distance (`highestAirY = playerPosition.y`).
+- **Fire & Lava Damage:** Lava deals **4 HP damage every 0.5s**; swimming in lava is clamped to **1.5 m/s** upward and **1.0 m/s** sink; exiting lava inflicts a **15-second fire burn** (1 HP/s). Stepping into water immediately extinguishes burning fire.
+- **Fluid Flow Push Force:** Downward drag in falling fluid columns (**3.2 m/s**) and horizontal pushing downstream along surface gradients (**1.8 m/s**).
+- **Oxygen & Drowning Meter:** Submerging the player's head depletes an air supply lasting **15.0 seconds** (represented by 10 animated bubbles on `#oxygen-bar`); running out of oxygen deals **2.0 DPS drowning damage**; oxygen refills at **5 bubbles/second** upon surfacing.
+- **Camera Screen Tints & Fog:** Submerging into water applies a cyan screen tint and sapphire fog (`#1d4ed8`, density `0.065`); submerging into lava applies an orange-red screen tint and dense orange fog (`#ea580c`, density `0.40`).
+
 ---
 
-## 🗺️ Complete Phase-by-Phase Breakdown
+## ⚔️ Night Mob Multi-Attack Combat & Status Effects (`src/combat/`)
 
-### Part I — Core Foundation Roadmap (`Phases 0–6`)
+Voxel Realms features a tactical 3-phase melee combat engine and specialized data-driven multi-attack bosses:
 
-| Phase | Title | Architectural & Feature Details | Key Modules |
-| :---: | :--- | :--- | :--- |
-| **Phase 0** | **Setup & Orientation** | Initialized Vite + Three.js ES module pipeline, `PerspectiveCamera`, `WebGLRenderer`, dual `AmbientLight` + `DirectionalLight`, window resize handling, and `THREE.Clock` (`deltaTime`) 60 FPS animation loop. | `src/main.js`, `package.json` |
-| **Phase 1** | **Static 3D World** | Replaced individual meshes with `THREE.InstancedMesh` (rendering hundreds of cubes in a single GPU draw call), added **Pointer Lock API** mouse-look, `WASD` horizontal movement relative to camera yaw, and directional sunlight face shading. | `src/world.js`, `src/controls.js`, `src/lighting.js` |
-| **Phase 2** | **Block Placement & Removal** | Introduced the Single Source of Truth `Map<"x,y,z", blockType>`, **3D Digital Differential Analyzer (DDA)** voxel raycasting (`6.0` block reach) returning exact block coordinates and cardinal hit face normals (`top`, `bottom`, `north`, `south`, `east`, `west`), a `1.008³` wireframe target outline, Left-Click break, Right-Click adjacent face place (with player AABB overlap protection), and a 9-slot HTML/CSS Hotbar (`1–9` keys + scroll wheel). | `src/raycaster.js`, `src/hotbar.js`, `src/blocks.js` |
-| **Phase 3** | **Real Terrain & 16³ Chunks** | Implemented deterministic seeded 2D Fractal Brownian Motion (`fbm2D`) hills + 3D Simplex (`noise3D`) underground caves, partitioned into `16×16×16` chunks (`VoxelChunk`) sampled strictly in **world coordinates** for zero border seams, with dynamic radius streaming and `.dispose()` GPU buffer cleanup. | `src/noise.js`, `src/chunk.js`, `src/world.js` |
-| **Phase 4** | **Inventory, Crafting & Character** | **Part 4A:** Built a `36`-slot stack-based inventory (`9` hotbar + `27` backpack, max stack `64`), `E`-key Inventory Modal (pausing movement & unlocking mouse), and a `2×2` Crafting Grid driven by `CRAFTING_RECIPES`.<br>**Part 4B:** Built an articulated ~1.85-block-tall blocky humanoid rig with `GLTFLoader` (`/assets/character.glb`) and `THREE.AnimationMixer` (`"Idle"` $\leftrightarrow$ `"Walk"` `.crossFadeTo()`), plus a `V`-key camera mode toggle. | `src/inventory.js`, `src/hotbar.js`, `src/character.js` |
-| **Phase 5** | **Persistence & Save/Load** | Implemented `serializeGameState()` and `deserializeGameState()` saving only modified block diffs (`Array.from(world.modifiedBlocks.entries())`), world seed, player position/look, and inventory stacks to **`IndexedDB`** (`VoxelGameDB`), with 25-second autosave, `beforeunload` save, manual save (`[P]`), and New World reset (`[N]`). | `src/storage.js` |
-| **Phase 6** | **Polish & "Feel"** | Added a zero-dependency **Web Audio API** procedural sound synthesizer (break, place, footsteps), orbiting Day/Night cycle (`[T]`), passive wandering blocky mobs, gravity-driven block-break particle bursts, and 2D Greedy Rectangle Merging (`~84%` triangle reduction). | `src/polish.js`, `src/chunk.js` |
+### 1. GrimWraith 3-Attack Combatant
+The **GrimWraith** uses a dedicated [`AttackController`](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/src/combat/AttackController.js) with independent cooldowns and a 0.8s global recovery delay:
+1. **Scythe Slash:** Fast melee slash dealing **4 damage** with **0.75 knockback** within 3.5m.
+2. **Summon Skeletons:** Raises arms to summon up to **3 Bonewalker Skeletons** (`SoulSkeleton`), capped to prevent endless swarms.
+3. **Soul Steal (`SoulBeamAttack`):** Long-range channeled soul beam dealing **50% of the player's current health** (non-lethal, leaving at least 1 HP); strictly blocked by solid block cover in line-of-sight.
+
+### 2. SoulSkeleton Minion
+- Fully articulated blocky skeleton with glowing teal soul core.
+- Executes **Claw Scratch** (2 damage, 1.6m range).
+- Burns in open daylight (4.0 DPS) and seeks shade/water.
+- **Crumble Mechanic:** When the parent GrimWraith is slain, all summoned skeletons instantly collapse and crumble into dust.
+
+### 3. Player Status Effects (`src/statusEffects.js`)
+- **Poison:** Deals 1 damage every 1.5s; non-lethal (stops at 1 HP).
+- **Bleed:** Deals 1 damage every 1.0s; lethal.
+- **Stagger:** Locks player attacks and sprinting for 0.8s, followed by **3.0 seconds of stagger immunity**.
+- **Fear:** Slows movement speed by 40% and produces screen shake.
+- **Weakness:** Reduces player melee attack damage by 40%.
+- **Soul Drain:** Drains 10% maximum health over time and depletes stamina.
 
 ---
 
-### Part II — v2.0 Desktop & Engine Upgrade Suite (`Phases U0–U7`)
+## 🌲 Forest Biomes, Climate & 4-Season Cycle (`src/climate/`)
 
-| Phase | Title | Architectural & Feature Details | Key Modules |
-| :---: | :--- | :--- | :--- |
-| **Phase U0** | **Stabilize & Performance Foundation** | • **U0.1:** Added a toggleable **`F3` Developer Debug Overlay** (hidden by default) showing `FPS`, `Frame Time (ms)`, `Draw Calls`, `Greedy Mesh Reduction`, `Loaded Chunks`, `Worker Queue`, and `Biome`.<br>• **U0.2:** Offloaded chunk generation, exposure culling, and AO calculation into a pool of **Web Workers** (`src/workers/chunkWorker.js`) using zero-copy transferable `Float32Array` buffers.<br>• **U0.3:** Added real **`0.6×1.8` Player AABB Physics** (`eyeHeight = 1.62`), gravity, jumping (`Space`), axis-separated collision resolution (`X -> Z -> Y`), camera `near = 0.05`, spawn safety elevation, and **Double-Tap `Space` / `F` Fly Mode**. | `src/workers/chunkWorker.js`, `src/controls.js` |
-| **Phase U1** | **Desktop Application (Electron)** | Wrapped the Vite + Three.js engine in an Electron desktop shell (`electron/main.cjs`, `electron/preload.cjs`) with `vite.config.js` (`base: './'`), single-instance lock, frameless `480×270` splash window (`electron/splash.html`), real stage-driven spawn loading screen, `F11` / `Alt+Enter` fullscreen, `window-state.json` persistence, and atomic rolling-backup file saves (`world.json` + `.bak1..3.json`). | `electron/main.cjs`, `electron/preload.cjs`, `vite.config.js` |
-| **Phase U2** | **Graphics Upgrade** | Added procedural pixel-art textures with half-texel UV inset (`eps = 0.003`), per-voxel **Ambient Occlusion & Underground Cave Darkening**, a dynamic sky system with visible orbiting **Sun & Moon discs**, a **280-star Night Starfield**, **18 drifting 3D Clouds**, a separate transparent **Water render pass** (`depthWrite: false`), and an underwater sapphire screen tint. | `src/polish.js`, `src/chunk.js`, `src/world.js` |
-| **Phase U3** | **World Depth (Biomes, Ores, Trees & Water)** | Expanded terrain generation with **10 Seeded Biomes** (`Verdant Meadows`, `Timberland Woods`, `Silver Birch Grove`, `Boreal Pine Taiga`, `Frostbound Tundra`, `Golden Dunes`, `Sunscorched Savanna`, `Craggy Alpine Peaks`, `Misty Fenland`, `Sapphire Sea`), Sea Level water/ice (`y = 18`), depth-stratified **Ore Veins** (`Carbon Seam`, `Ferric Vein`, `Auric Vein`, `Azure Crystal`), deep glowing `Molten Magma`, unbreakable `Basalt Core` (`y = 0`), deterministic cross-chunk **Trees**, and **Rain / Snow Weather**. | `src/noise.js`, `src/blocks.js` |
-| **Phase U4** | **Blender Character Pipeline** | Added headless Blender Python script `tools/blender/build_character.py` (`bpy`) with underscore-only bone hierarchy (`root`, `hips`, `spine`, `chest`, `head`, `arm_upper_L/R`, `hand_R_socket`, `head_camera`) and 3 camera modes (`1st-Person`, `3rd-Person Back`, `3rd-Person Front`). | `tools/blender/build_character.py`, `src/character.js` |
-| **Phase U5** | **Mobs & Survival Combat** | Added original passive (`Snorter`, `Moo-Beast`, `Woolback`, `Cluck`) and hostile (`Shambler`, `Crawler`, `Bloater`) mobs with AI state machines (`Idle`, `Wander`, `Flee`, `Chase`), **10 Health Hearts (`20 HP`)**, **10 Stamina Pips**, fall damage, Left-Click ray-vs-mob AABB melee combat with critical hits, knockback, red hurt flash, and item drops. | `src/polish.js`, `src/main.js` |
-| **Phase U6** | **Finished Game Interface** | Built an offscreen **Isometric 3D Block Icon Renderer** (`getBlockIconDataURL`), replaced the always-on debug box with a clean survival HUD (`F3` toggles debug), added the `M` Game/Settings Menu, `F2` PNG screenshot export, and the **`/` In-Game Command Console**. | `src/hotbar.js`, `src/blocks.js`, `index.html` |
-| **Phase U7** | **Final QA & Release Build** | Configured Rollup manual chunk splitting (`three` + `chunkWorker` + app bundle) in `vite.config.js` with zero build warnings and verified desktop + web persistence. | `vite.config.js`, `CHANGELOG.md`, `DESIGN.md` |
+1. **New Biome Regions:**
+   - **Darkwood Forest:** Dense canopy of 2×2 Dark Oak trees with leaf block sunlight occlusion, forest floor turf, and giant ferns/mushrooms.
+   - **Autumn Maple Forest:** Multi-colored deciduous maple trees with red, orange, and yellow foliage.
+   - **Redwood Giant Forest:** Towering redwood trees scaling from **24 to 40 blocks tall** with cone canopies and flared bases.
+2. **Dynamic 4-Season Calendar:**
+   - 20-day year (5 days per season: Spring $\rightarrow$ Summer $\rightarrow$ Autumn $\rightarrow$ Winter).
+   - Real daylight shift (longer summer days, shorter winter days).
+   - Procedural temperature formula factoring biome base temperature, seasonal offset, day/night swing, and altitude lapse (-0.28°C per block above sea level).
+3. **Animal Climate Behaviors & 3D Flying Birds:**
+   - Passive mobs seek shelter in storms, huddle together in freezing winter, rest in the shade during desert heat, and sleep at night.
+   - **Real 3D Bird Flight AI (`src/ai/BirdFlightAI.js`):** Birds smoothly transition through `Perch` $\rightarrow$ `TakeOff` $\rightarrow$ `Fly` $\rightarrow$ `Soar` $\rightarrow$ `Land` without gravity fall, steering dynamically around obstacles.
+   - Chickens exhibit a gentle flutter fall clamping downward velocity to `-1.8 m/s`.
 
 ---
 
@@ -124,81 +147,104 @@ voxel-game/
 | :--- | :--- |
 | **Click 3D View** | Engage Mouse Look (**Pointer Lock API**) |
 | **`W` `A` `S` `D`** | Walk / Strafe (`Ctrl` or `Shift` to Sprint with dynamic FOV widening) |
-| **`Space`** | Jump (when in Survival AABB Mode) or Fly Up (in Fly Mode) |
+| **`Space`** | **Jump** (on land), **Swim Up** (in Water: 3.5 m/s; in Lava: 1.5 m/s), or **Fly Up** (in Fly Mode) |
 | **Double-Tap `Space` / `F`** | Toggle **Survival AABB Physics** $\leftrightarrow$ **Free Fly Mode** |
 | **Left-Click** | **Attack Mob** (within `3.8m` reach; critical hit while falling) or **Mine Block** |
-| **Right-Click** | **Place Block** from active Hotbar slot onto adjacent hit face |
+| **Right-Click** | **Place Block** or **Place Fluid Source** from active Hotbar slot |
 | **`1` – `9` / Scroll Wheel** | Select Hotbar Slot (`1`–`9`) |
 | **`E`** | Open / Close **36-Slot Inventory, 2×2 Crafting Grid & Recipe Book** |
 | **`V`** | Cycle Camera View (`1st-Person` $\rightarrow$ `3rd-Person Back` $\rightarrow$ `3rd-Person Front`) |
 | **`F3`** | Toggle **Developer Diagnostics & Performance Telemetry Overlay** |
+| **`F4`** | Toggle **Combat Range Rings & Line-of-Sight Visualizer** |
+| **`F6`** | Toggle **Cave & Ore X-Ray Mode** |
+| **`F2`** | Capture **PNG Screenshot** |
 | **`/`** | Open **In-Game Command Console** |
-| **`M`** | Open **Pause & Settings Menu** (Quality Presets, Weather, Time, Seed Reset) |
+| **`M`** | Open **Pause & Settings Menu** |
 | **`P`** | Manual Save World (`IndexedDB` + Desktop IPC) |
 | **`T`** | Advance **Day / Dusk / Night / Dawn** Cycle |
-| **`F2`** | Capture **PNG Screenshot** |
+| **`B`** | Cycle-spawn each of the 14 sculpted 3D Blender mobs |
 
 ---
 
 ## 💻 In-Game `/` Console Commands
 
-Press **`/`** during gameplay to open the command bar and run any of the following:
+Press **`/`** during gameplay to open the command console and run:
 
 | Command | Example | Description |
 | :--- | :--- | :--- |
+| `/fluidstats` | `/fluidstats` | Displays active fluid blocks, queue length, tick rate, and pending remesh chunks |
+| `/fluidtick <n>` | `/fluidtick 5` | Manually steps the fluid simulator by `n` ticks and triggers instant chunk re-meshing |
+| `/fluiddebug <on\|off>` | `/fluiddebug on` | Toggles detailed fluid physics debug logging |
+| `/give <item> <count>` | `/give water_source 8` | Adds items to inventory (supports `water_source`, `lava_source`, ores, etc.) |
+| `/climate` | `/climate` | Shows current season, day, biome temperature, weather, and precipitation type |
+| `/season <spring\|summer\|autumn\|winter>` | `/season winter` | Sets active climate season and triggers temperature adjustments |
+| `/forceattack <MobType> <attackId>` | `/forceattack GrimWraith soul_steal` | Forces a mob to execute an attack immediately, ignoring cooldowns |
+| `/mobdebug <on\|off>` | `/mobdebug on` | Toggles combat range rings, state labels, and attack cooldown indicators |
+| `/mobai <on\|off>` | `/mobai off` | Freezes or unfreezes all mob artificial intelligence for inspection |
+| `/killmobs` | `/killmobs` | Despawns all active hostile and summoned mobs |
 | `/time set <day\|night\|sunset>` | `/time set night` | Immediately sets the sun/moon/starfield cycle |
-| `/weather <clear\|rain\|snow>` | `/weather rain` | Switches active weather particle system and sky tint |
+| `/weather <clear\|rain\|snow>` | `/weather rain` | Switches weather particle system and sky tint |
 | `/gamemode <fly\|survival>` | `/gamemode fly` | Toggles between Free Fly and `0.6×1.8` AABB Gravity/Collision mode |
-| `/give <blockId> <count>` | `/give gem_ore 32` | Adds a stack of any block/ore (`gem_ore`, `gold_ore`, `torch`, `brick`, etc.) |
-| `/spawn <MobType>` | `/spawn pig` | Spawns a mob (`Pig` / `Snorter`, `Moo-Beast`, `Woolback`, `Cluck`, `Shambler`, `Crawler`, `Bloater`) |
-| `/tp <x> <y> <z>` | `/tp 0 35 0` | Teleports player to world coordinates `(x, y, z)` and streams surrounding chunks |
-| `/heal` | `/heal` | Restores all 10 Health Hearts (`20 HP`) and 10 Stamina pips |
+| `/spawn <MobType>` | `/spawn GrimWraith` | Spawns a mob (`GrimWraith`, `ShadowStalker`, `BloodCrawler`, `FleshGhoul`, `Pig`, etc.) |
+| `/heal` | `/heal` | Restores all 10 Health Hearts (`20 HP`), Stamina, and clears status effects |
+| `/orestats` | `/orestats` | Prints total counts and per-chunk averages for all ores across loaded chunks |
+| `/biomemap` | `/biomemap` | Toggles top-down 480×480m 2D biome region minimap overlay |
+| `/gallery` | `/gallery` | Builds a 36-block showcase grid in front of the player |
 
 ---
 
-## 🐾 Complete 14-Mob Blender Suite (`tools/blender/generate_all_mobs.py` & `src/BlenderMobs.js`)
+## 🐾 Complete 14-Mob Blender Suite (`tools/blender/`)
 
 ![All 14 Sculpted Blender Mobs](public/assets/models/all_mobs_render.png)
 
 ![Night Horror Blender Mobs](public/assets/models/night_horror_mobs_render.png)
 
-All **14 custom 3D mobs** sculpted in Blender ([tools/blender/generate_all_mobs.py](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/tools/blender/generate_all_mobs.py), [tools/blender/all_mobs.blend](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/tools/blender/all_mobs.blend), and [tools/blender/night_horror_mobs.blend](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/tools/blender/night_horror_mobs.blend)) are integrated as articulated 3D mobs in the game via [src/BlenderMobs.js](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/src/BlenderMobs.js) and [src/polish.js](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/src/polish.js):
+All **14 custom 3D mobs** sculpted in Blender are integrated with distinct AI, procedural animations, and combat hitboxes:
 
 ### ☀️ Daytime, Companion & Feral Mobs (10)
-1. **`Pig`** — Plump pink body, beveled snout, nostrils, blush cheeks, 4 hooves, 32-point helical curly tail
-2. **`Dog`** — German Shepherd Guard Dog with mahogany/obsidian coat, 8-spike studded leather collar, fangs, tongue & bushy tail
-3. **`Cow`** — Dairy cow with 4 black spots, eye patch, pink muzzle, udder, curved horns & tufted tail
-4. **`Sheep`** — Fluffy wool core + 10 wool puffs, head wool cap, charcoal face & ears
-5. **`Rabbit`** — White cotton-tail bunny with tall pink-lined ears, buck teeth & bounding hop gait
-6. **`Bird`** — Crimson Raptor Falcon with gold-speckled breast, 5 crown crest plumes, hooked golden beak, 12 primary flight feathers & 8 talons
-7. **`Cat`** — Ginger & cream cat with emerald eyes, pink nose & upright S-curve tail
-8. **`Chicken`** — Farm chicken with 3-lobed red comb, wattle, yellow beak & flapping wings
-9. **`Wolf`** — Angry Red-Eyed Dire Wolf with 5 spiky dorsal hackles, glowing blood-red eyes, snarling fangs & clawed paws
-10. **`Monkey`** — Dangerous Feral Mandrill Rage Ape ([monkey_render.png](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/public/assets/models/monkey_render.png)) with crimson/cobalt war-paint ridges, 4 giant saber fangs, glowing rage eyes & clawed fists
+1. **`Pig`** — Plump pink body, beveled snout, blush cheeks, 4 hooves, helical curly tail.
+2. **`Dog`** — Guard Dog with mahogany/obsidian coat, 8-spike studded collar, fangs & bushy tail.
+3. **`Cow`** — Dairy cow with black spots, pink muzzle, udder, curved horns & tufted tail.
+4. **`Sheep`** — Fluffy wool puffs, head wool cap, charcoal face & ears.
+5. **`Rabbit`** — White cotton-tail bunny with tall pink-lined ears, buck teeth & bounding hop.
+6. **`Bird`** — Raptor Falcon with 3D flight AI, soaring glide, hooked beak & talons.
+7. **`Cat`** — Ginger cat with emerald eyes, pink nose & upright S-curve tail.
+8. **`Chicken`** — Farm chicken with red comb, flapping wings & gentle flutter fall.
+9. **`Wolf`** — Aggressive Dire Wolf with dorsal hackles, glowing red eyes & snarling fangs.
+10. **`Monkey`** — Feral Mandrill Ape with war-paint ridges, 4 saber fangs & clawed fists.
 
 ### 🌙 Night Horror Hostile Mobs (4)
-11. **`ShadowStalker`** — Towering Wendigo with bleached stag skull, crimson void eyes, glowing heart core inside 8 exposed ribs, branching blood antlers & 8 bone-scythe claws
-12. **`BloodCrawler`** — Abyssal Spider with metallic chitin thorax, swollen blood-sac abdomen, 6 glowing pustules & dorsal spikes, 8 crimson eyes, venom mandibles & 8 jointed legs
-13. **`GrimWraith`** — Hooded Soul Reaper with tattered shadow cloak, cyan soul-fire chest vortex, screaming phantom skull & giant glowing Soul-Reaper Scythe
-14. **`FleshGhoul`** — Hulking Mutant Night Crawler with asymmetric gore shoulder, 6 erupting dorsal bone spikes, 3 glowing toxic lime eyes, split mandible jaws & bone-blade arms
-
-### 🎮 How to See / Spawn Any Mob in Game
-- All **14 Blender Mobs** automatically spawn in a showcase semicircle around you at world start.
-- Press **`B`** repeatedly during gameplay to cycle-spawn each of the 14 Blender Mobs right in front of your camera!
-- Or run **`/spawn <MobName>`** in the `/` console (e.g. `/spawn Dog`, `/spawn Monkey`, `/spawn Bird`, `/spawn Wolf`, `/spawn ShadowStalker`, `/spawn BloodCrawler`, `/spawn GrimWraith`, `/spawn FleshGhoul`).
+11. **`ShadowStalker`** — Towering Wendigo with bleached stag skull, crimson void eyes, glowing heart core & bone-scythe claws.
+12. **`BloodCrawler`** — Abyssal Spider with metallic chitin thorax, swollen blood-sac abdomen, 8 crimson eyes & venom mandibles.
+13. **`GrimWraith`** — Hooded Soul Reaper with soul-fire chest vortex, scythe slash, skeleton summoning & channeled soul steal.
+14. **`FleshGhoul`** — Hulking Mutant Crawler with asymmetric gore shoulder, 6 erupting dorsal bone spikes, split mandible jaws & bone-blade arms.
 
 ---
 
-## 🎨 HD Procedural Block Texture Atlas (`tools/generate-textures.js`)
+## 🧪 Automated QA Suite & Testing Coverage
 
-![HD Block Texture Atlas Preview](public/assets/textures/atlas_preview.png)
+Voxel Realms maintains automated test suites verifying world generation determinism, combat range boundaries, fluid physics, and climate systems:
 
-Every block in Voxel Realms renders with crisp 32×32 pixel-art textures (`public/assets/textures/atlas.png` & `atlas.json`, `512×512`, `NearestFilter`, `SRGBColorSpace`, half-texel UV inset) generated by [tools/generate-textures.js](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/tools/generate-textures.js):
-- **71 Hand-Built Procedural Tiles:**
-  - **Positional Surface Variants:** `grass_top_a/b/c`, `grass_side` (lush overhang over pebbled loam), `dirt_a/b/c`, `stone_a/b/c`, `sand_a/b`, `leaves_oak/b`
-  - **3 Wood Families:** Oak (`log_oak_side/top`, `planks_oak`, `leaves_oak`), Birch (`log_birch_side/top`, `planks_birch`, `leaves_birch`), and Spruce/Pine (`log_pine_side/top`, `planks_pine`, `leaves_pine`)
-  - **6 Underground Ores:** Coal (`ore_coal`), Iron (`ore_iron`), Gold (`ore_gold`), Diamond/Crystal (`ore_crystal`), Redstone (`ore_redstone`), and Emerald (`ore_emerald`)
-  - **Classic Minecraft Craftables & Utility Blocks:** `crafting_table` (`crafting_top/side`), `furnace` (`furnace_front`), `tnt` (`tnt_top/side`), `bookshelf` (`bookshelf_side`), `bricks`, `stone_bricks`, `mossy_cobble`, `sandstone`, `obsidian`, `bedrock`, `glowstone`, `glass`, `ice`, `snow`, `gravel`, `cactus`, `pumpkin`, `melon`, `water`, `lava`, and 10-stage mining cracks (`crack_0..9`).
+```bash
+# Run the Master 48-Test QA Suite
+node tests/run_qa_suite.js
+
+# Run the 7-Scenario Fluid Simulator Suite
+node tests/fluids.test.js
+```
+
+| Suite | Tests | Result | Coverage Details |
+| :--- | :---: | :---: | :--- |
+| **Task F1 Melee Verification** | 6 | **PASS** | Edge-to-edge range boundaries, floor reachY checks, solid wall LOS, windup miss |
+| **Task F2 Day/Night Spawning** | 3 | **PASS** | Clock boundaries (55%–95%), behavior classes, version 3 save warnings |
+| **Task F3 Ranged Magic Combat** | 2 | **PASS** | Swept projectile collision (14 m/s), sidestep miss, stone wall blocking |
+| **Task F4 & F5 Cave & Ore Gen** | 3 | **PASS** | 12m spawn protection, reverse chunk order determinism, 5-seed benchmark |
+| **Night Mob Combat System** | 4 | **PASS** | 6 status effects, 3s stagger immunity, 12 night mob attacks, daylight burn |
+| **Part A & B Regions & Jump** | 2 | **PASS** | 65,536-column purity audit, 1-block auto-jump, 2-block turn away, unstuck push |
+| **GrimWraith & Skeletons** | 6 | **PASS** | AttackController cooldowns, tactical AI, scythe slash, soul beam, skeleton crumble |
+| **Fluid Simulator (FL1.1–FL1.7)** | 7 | **PASS** | 7-block water spread, vertical fall, hole search, infinite sources, lava, reactions |
+| **Extended Forest, Climate & Birds** | 15 | **PASS** | Biome definitions, 4 seasons, temperature formula, animal behavior, 3D bird AI |
+| **Total Automated Tests** | **48** | **PASS** | **100% Pass Rate with 0 Failures** |
 
 ---
 
@@ -227,11 +273,10 @@ npm run preview
 ```
 
 ### 4. Run as Native Electron Desktop App (Optional)
-If you have `electron` installed (`npm i -D electron electron-builder`):
 ```bash
 npm run app:dev
 ```
-Or build the standalone Windows `.exe` installer / portable build into `release/`:
+Or build the standalone Windows `.exe` installer into `release/`:
 ```bash
 npm run app:dist
 ```
