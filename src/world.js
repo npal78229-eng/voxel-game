@@ -37,7 +37,6 @@ function applyAtlasShader(material) {
 #ifdef USE_MAP
   float tileIdx = (faceType < 0.5) ? instanceTiles.x : ((faceType < 1.5) ? instanceTiles.y : instanceTiles.z);
   vTileIdx = tileIdx;
-  vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
   float col = mod(tileIdx, 16.0);
   float row = floor(tileIdx / 16.0);
   float eps = 0.5 / 1024.0;
@@ -52,6 +51,16 @@ function applyAtlasShader(material) {
   vMapUv = vec2(mix(u0, u1, localUv.x), mix(v0, v1, localUv.y));
 #endif`
       );
+
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <worldpos_vertex>',
+      `#include <worldpos_vertex>
+#ifdef USE_INSTANCING
+  vWorldPos = (modelMatrix * (instanceMatrix * vec4(transformed, 1.0))).xyz;
+#else
+  vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+#endif`
+    );
 
     shader.fragmentShader =
       `uniform vec3 uSeasonTint;\nuniform float uLeafDensity;\nuniform float uSnowAmount;\nuniform float uWetDarken;\nvarying vec3 vWorldPos;\nvarying float vTileIdx;\n` +
@@ -73,12 +82,12 @@ function applyAtlasShader(material) {
   }
 
   // Render-only snow build-up on sky top faces
-  if (uSnowAmount > 0.01 && vTileIdx != 44.0 && vTileIdx != 45.0) {
+  if (uSnowAmount > 0.01 && abs(vTileIdx - 44.0) > 0.5 && abs(vTileIdx - 45.0) > 0.5) {
     diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.94, 0.96, 1.0), uSnowAmount * 0.75);
   }
 
   // Rain wet darkening (10-15%)
-  if (uWetDarken > 0.01 && vTileIdx != 44.0 && vTileIdx != 45.0) {
+  if (uWetDarken > 0.01 && abs(vTileIdx - 44.0) > 0.5 && abs(vTileIdx - 45.0) > 0.5) {
     diffuseColor.rgb *= (1.0 - uWetDarken * 0.15);
   }
 #endif`

@@ -96,10 +96,9 @@ export class FirstPersonController {
    */
   ensureNotInsideBlocks() {
     if (!this.world) return;
-    const minSurfaceY =
-      this.world.getSurfaceHeight(this.playerPosition.x, this.playerPosition.z) +
-      0.5 +
-      this.eyeHeight;
+    const surfY = this.world.getSurfaceHeight(this.playerPosition.x, this.playerPosition.z);
+    const effectiveFloor = Math.max(surfY, 18);
+    const minSurfaceY = effectiveFloor + 0.5 + this.eyeHeight;
     if (this.playerPosition.y < minSurfaceY) {
       this.playerPosition.y = minSurfaceY + 0.05;
       this.velocityY = 0;

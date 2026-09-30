@@ -60,9 +60,30 @@ const dayNight = new DayNightCycle(scene, lights);
 const world = new VoxelWorld(scene);
 
 function setDefaultSpawn() {
-  const spawnX = 8;
-  const spawnZ = 11;
-  const surfaceY = Math.max(SEA_LEVEL + 1, world.getSurfaceHeight(spawnX, spawnZ));
+  let spawnX = 8;
+  let spawnZ = 11;
+  let surfaceY = world.getSurfaceHeight(spawnX, spawnZ);
+
+  if (surfaceY <= SEA_LEVEL) {
+    findLand: for (let r = 2; r <= 80; r += 2) {
+      for (let dx = -r; dx <= r; dx += 2) {
+        for (let dz = -r; dz <= r; dz += 2) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          const tx = 8 + dx;
+          const tz = 11 + dz;
+          const b = world.noise ? world.noise.getBiomeAt(tx, tz) : null;
+          const sy = world.getSurfaceHeight(tx, tz);
+          if (b && b.id !== 'ocean' && sy >= SEA_LEVEL + 2) {
+            spawnX = tx;
+            spawnZ = tz;
+            surfaceY = sy;
+            break findLand;
+          }
+        }
+      }
+    }
+  }
+
   camera.position.set(spawnX, surfaceY + 2.5, spawnZ);
   camera.lookAt(spawnX, surfaceY + 1.5, spawnZ - 4);
 }
