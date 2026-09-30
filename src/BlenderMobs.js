@@ -776,49 +776,101 @@ export function build_flesh_ghoul() {
   return c.finalize();
 }
 
-function build_hexcaster() {
-  const c = makeCollector();
-  const robe = get_mat('Hex_Robe', [0.14, 0.05, 0.28], 0.85, 0.0, 0.0, [0.06, 0.02, 0.14]);
-  const trim = get_mat('Hex_Trim', [0.58, 0.22, 0.88], 0.4, 0.2, 1.5);
-  const void_m = get_mat('Hex_Void', [0.02, 0.01, 0.05], 0.98);
-  const eye_glow = get_mat('Hex_Eye', [0.85, 0.35, 1.0], 0.1, 0.0, 16.0);
-  const hand_mat = get_mat('Hex_Hand', [0.68, 0.42, 0.95], 0.2, 0.1, 6.0);
+export function build_hexcaster() {
+  const c = createMobContext(0.48);
+  const robe = get_mat('Hex_Robe', [0.14, 0.05, 0.28, 1.0], 0.85, 0.0, 0.0, [0.06, 0.02, 0.14, 1.0]);
+  const trim = get_mat('Hex_Trim', [0.58, 0.22, 0.88, 1.0], 0.4, 0.2, 1.5);
+  const void_m = get_mat('Hex_Void', [0.02, 0.01, 0.05, 1.0], 0.98);
+  const eye_glow = get_mat('Hex_Eye', [0.85, 0.35, 1.0, 1.0], 0.1, 0.0, 6.0);
+  const hand_mat = get_mat('Hex_Hand', [0.68, 0.42, 0.95, 1.0], 0.2, 0.1, 4.0);
 
-  c.add_cone('RobeLower', [0, 0, 0.72], 0.54, 0.24, 1.35, robe);
-  c.add_sphere('Torso', [0, 0, 1.28], [0.28, 0.34, 0.38], robe);
-  c.add_cone('Mantle', [0, 0, 1.48], 0.42, 0.26, 0.28, trim);
+  c.add_cone('Hex_RobeLower', [0, 0, 0.72], [0.54, 0.54, 1.35], robe, [0, 0, 0], 1.0, 0.35);
+  c.add_sphere('Hex_Torso', [0, 0, 1.28], [0.28, 0.34, 0.38], robe);
+  c.add_cone('Hex_Mantle', [0, 0, 1.48], [0.42, 0.42, 0.28], trim, [0, 0, 0], 1.0, 0.5);
 
-  c.add_cone('Hood', [0.04, 0, 1.84], 0.32, 0.08, 0.48, robe, [0, 8, 0]);
-  c.add_sphere('FaceVoid', [0.14, 0, 1.76], [0.16, 0.18, 0.2], void_m);
-  for (const s of [-1, 1]) {
-    c.add_sphere(`Eye_${s}`, [0.27, s * 0.08, 1.78], [0.045, 0.055, 0.032], eye_glow);
-    c.add_sphere(`Arm_${s}`, [0.46, s * 0.36, 1.32], [0.11, 0.11, 0.11], hand_mat);
-    c.add_cone(`RuneShard_${s}`, [0.54, s * 0.36, 1.48], 0.05, 0.01, 0.22, eye_glow);
+  c.add_cone('Hex_Hood', [0.04, 0, 1.84], [0.32, 0.32, 0.48], robe, [0, 0.14, 0], 1.0, 0.2);
+  c.add_sphere('Hex_FaceVoid', [0.14, 0, 1.76], [0.16, 0.18, 0.2], void_m);
+  for (const [s, ys] of [['L', 1], ['R', -1]]) {
+    c.add_sphere(`Hex_Eye_${s}`, [0.27, ys * 0.08, 1.78], [0.045, 0.055, 0.032], eye_glow);
+    c.add_sphere(`Hex_Arm_${s}`, [0.46, ys * 0.36, 1.32], [0.14, 0.14, 0.38], hand_mat, [0, 0.3, ys * 0.2]);
+    c.add_cone(`Hex_RuneShard_${s}`, [0.54, ys * 0.36, 1.48], [0.05, 0.05, 0.22], eye_glow);
   }
 
   return c.finalize();
 }
 
-function build_bonewalker() {
-  const c = makeCollector();
-  const bone = get_mat('Bone_White', [0.82, 0.79, 0.72], 0.65, 0.0, 0.0, [0.62, 0.58, 0.52]);
-  const dark = get_mat('Bone_Dark', [0.12, 0.12, 0.14], 0.9);
-  const eye = get_mat('Bone_Eye', [0.35, 0.88, 1.0], 0.1, 0.0, 12.0);
-  const wood = get_mat('Bow_Wood', [0.38, 0.22, 0.09], 0.7);
+export function build_bonewalker() {
+  const c = createMobContext(0.48);
+  const bone = get_mat('Bone_White', [0.82, 0.79, 0.72, 1.0], 0.65, 0.0, 0.0, [0.62, 0.58, 0.52, 1.0]);
+  const dark = get_mat('Bone_Dark', [0.12, 0.12, 0.14, 1.0], 0.9);
+  const eye = get_mat('Bone_Eye', [0.35, 0.88, 1.0, 1.0], 0.1, 0.0, 5.0);
+  const wood = get_mat('Bow_Wood', [0.38, 0.22, 0.09, 1.0], 0.7);
 
-  c.add_cylinder('Pelvis', [0, 0, 0.76], 0.18, 0.14, bone);
-  c.add_cylinder('Spine', [0, 0, 1.12], 0.06, 0.65, bone);
+  c.add_cylinder('Bone_Pelvis', [0, 0, 0.76], [0.18, 0.18, 0.14], bone);
+  c.add_cylinder('Bone_Spine', [0, 0, 1.12], [0.08, 0.08, 0.65], bone);
   for (let r = 0; r < 3; r++) {
-    c.add_sphere(`Rib_${r}`, [0.04, 0, 1.02 + r * 0.14], [0.2, 0.26, 0.05], bone);
+    c.add_sphere(`Bone_Rib_${r}`, [0.04, 0, 1.02 + r * 0.14], [0.22, 0.28, 0.06], bone);
   }
-  c.add_sphere('Head', [0.04, 0, 1.62], [0.22, 0.2, 0.24], bone);
-  for (const s of [-1, 1]) {
-    c.add_sphere(`Eye_${s}`, [0.22, s * 0.08, 1.64], [0.04, 0.045, 0.035], eye);
-    c.add_cylinder(`Leg_${s}`, [0, s * 0.14, 0.38], 0.055, 0.72, bone);
-    c.add_cylinder(`Arm_${s}`, [0.24, s * 0.28, 1.26], 0.05, 0.58, bone, [0, 65, 0]);
+  c.add_sphere('Bone_Head', [0.04, 0, 1.62], [0.24, 0.22, 0.26], bone);
+  for (const [s, ys] of [['L', 1], ['R', -1]]) {
+    c.add_sphere(`Bone_Eye_${s}`, [0.22, ys * 0.08, 1.64], [0.04, 0.045, 0.035], eye);
+    c.add_cylinder(`Bone_Leg_${s}`, [0, ys * 0.14, 0.38], [0.06, 0.06, 0.72], bone);
+    c.add_cylinder(`Bone_Arm_${s}`, [0.24, ys * 0.28, 1.26], [0.05, 0.05, 0.58], bone, [0, 0.45, 0]);
   }
-  c.add_cylinder('BowStave', [0.54, -0.22, 1.26], 0.035, 0.78, wood, [12, 0, 0]);
-  c.add_cylinder('BowString', [0.46, -0.22, 1.26], 0.012, 0.76, dark, [12, 0, 0]);
+  c.add_cylinder('Bone_BowStave', [0.54, -0.22, 1.26], [0.035, 0.035, 0.78], wood, [0.2, 0, 0]);
+  c.add_cylinder('Bone_BowString', [0.46, -0.22, 1.26], [0.012, 0.012, 0.76], dark, [0.2, 0, 0]);
+
+  return c.finalize();
+}
+
+// ==============================================================================
+// 15. SOUL SKELETON (Summoned minion of GrimWraith, blocky with cyan glowing ribs & eyes)
+// ==============================================================================
+export function build_soul_skeleton() {
+  const c = createMobContext(0.48);
+  const m_bone = get_mat('SoulSkel_Bone', [0.78, 0.82, 0.84, 1.0], 0.52, 0, 0, [0.45, 0.55, 0.60, 1.0]);
+  const m_dark = get_mat('SoulSkel_DarkBone', [0.12, 0.16, 0.18, 1.0], 0.70);
+  const m_cyan = get_mat('SoulSkel_SoulCyan', [0.0, 1.0, 0.82, 1.0], 0.0, 0, 6.0);
+
+  c.add_cylinder('SoulSkel_Pelvis', [0, 0, 0.76], [0.18, 0.18, 0.14], m_bone);
+  c.add_cylinder('SoulSkel_Spine', [0, 0, 1.15], [0.08, 0.08, 0.65], m_bone);
+  c.add_sphere('SoulSkel_SoulCore', [0.06, 0, 1.22], [0.16, 0.16, 0.26], m_cyan);
+
+  // Ribs with cyan glowing slits
+  for (let r = 0; r < 3; r++) {
+    const rz = 1.04 + r * 0.16;
+    c.add_sphere(`SoulSkel_Rib_${r}`, [0.04, 0, rz], [0.22, 0.30, 0.06], m_bone);
+    c.add_sphere(`SoulSkel_RibGlow_${r}`, [0.08, 0, rz], [0.12, 0.22, 0.04], m_cyan);
+  }
+
+  // Skull with Screaming Jaw & Cyan Glowing Eye Sockets
+  c.add_sphere('SoulSkel_Skull', [0.12, 0, 1.70], [0.26, 0.24, 0.28], m_bone);
+  c.add_sphere('SoulSkel_Jaw', [0.22, 0, 1.48], [0.18, 0.14, 0.10], m_bone, [0, 0.25, 0]);
+
+  for (const [s, ys] of [['L', 1], ['R', -1]]) {
+    c.add_sphere(`SoulSkel_EyeSocket_${s}`, [0.30, ys * 0.09, 1.74], [0.06, 0.06, 0.06], m_dark);
+    c.add_sphere(`SoulSkel_CyanEye_${s}`, [0.32, ys * 0.09, 1.74], [0.045, 0.045, 0.045], m_cyan);
+
+    // Arms: Arm_R has claw scratches that animate forward
+    c.add_cylinder(`SoulSkel_UpperArm_${s}`, [0.08, ys * 0.35, 1.30], [0.055, 0.055, 0.45], m_bone, [0, 0.2, ys * 0.15]);
+    c.add_cylinder(`SoulSkel_Forearm_${s}`, [0.20, ys * 0.35, 0.95], [0.05, 0.05, 0.42], m_bone, [0, 0.4, 0]);
+    c.add_sphere(`SoulSkel_Hand_${s}`, [0.28, ys * 0.35, 0.78], [0.08, 0.07, 0.09], m_bone);
+
+    // Claws on both hands, extra prominent on right hand for Claw Scratch
+    [-0.04, 0.0, 0.04].forEach((cy_off, ci) => {
+      c.add_cone(
+        `SoulSkel_Claw_${s}_${ci}`,
+        [0.34, ys * 0.35 + cy_off, 0.76],
+        [0.025, 0.01, 0.18],
+        m_cyan,
+        [0, PI * 0.65, 0]
+      );
+    });
+
+    // Legs
+    c.add_cylinder(`SoulSkel_Leg_${s}`, [0, ys * 0.16, 0.40], [0.065, 0.065, 0.72], m_bone);
+    c.add_sphere(`SoulSkel_Foot_${s}`, [0.08, ys * 0.16, 0.07], [0.14, 0.08, 0.07], m_bone);
+  }
 
   return c.finalize();
 }
@@ -846,6 +898,7 @@ export const BLENDER_MOB_BUILDERS = {
   Crawler: build_blood_crawler,
   GrimWraith: build_grim_wraith,
   Wraith: build_grim_wraith,
+  SoulSkeleton: build_soul_skeleton,
   FleshGhoul: build_flesh_ghoul,
   Bloater: build_flesh_ghoul,
   Hexcaster: build_hexcaster,
@@ -866,6 +919,7 @@ export const ALL_14_BLENDER_MOB_TYPES = [
   'ShadowStalker',
   'BloodCrawler',
   'GrimWraith',
+  'SoulSkeleton',
   'FleshGhoul',
   'Hexcaster',
   'Bonewalker',

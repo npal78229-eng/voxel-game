@@ -38,7 +38,7 @@ self.onmessage = (event) => {
       const wz = startZ + lz;
       const biome = getBiome(wx, wz, seed);
       const surfaceY = noise.getSurfaceHeight(wx, wz);
-      const maxColY = Math.min(WORLD_MAX_Y, Math.max(surfaceY + 6, 22));
+      const maxColY = Math.min(WORLD_MAX_Y, Math.max(surfaceY + 44, 24));
 
       for (let wy = 0; wy <= maxColY; wy++) {
         const key = coordKey(wx, wy, wz);
@@ -87,14 +87,17 @@ self.onmessage = (event) => {
       wz < startZ + CHUNK_SIZE
     ) {
       const b = blocks.get(key);
-      return Boolean(b && b !== 'water');
+      const def = BLOCK_BY_ID[b];
+      return Boolean(b && b !== 'water' && b !== 'lava' && (!def || !def.isPlant));
     }
     if (diffMap.has(key)) {
       const b = diffMap.get(key);
-      return Boolean(b && b !== 'water');
+      const def = BLOCK_BY_ID[b];
+      return Boolean(b && b !== 'water' && b !== 'lava' && (!def || !def.isPlant));
     }
     const nat = noise.getNaturalBlockAt(wx, wy, wz);
-    return Boolean(nat && nat !== 'water');
+    const def = BLOCK_BY_ID[nat];
+    return Boolean(nat && nat !== 'water' && nat !== 'lava' && (!def || !def.isPlant));
   };
 
   const hasAnyAt = (wx, wy, wz) => {
@@ -115,6 +118,7 @@ self.onmessage = (event) => {
 
   const opaqueEntries = [];
   const transparentEntries = [];
+  const plantEntries = [];
 
   const XRAY_VISIBLE_BLOCKS = new Set([
     'coal_ore',
@@ -131,7 +135,18 @@ self.onmessage = (event) => {
   for (const [key, blockType] of blocks.entries()) {
     const [wx, wy, wz] = key.split(',').map(Number);
     const def = BLOCK_BY_ID[blockType];
+    const isPlant = Boolean(def && def.isPlant);
     const isTrans = Boolean(def && def.transparent);
+
+    if (isPlant) {
+      plantEntries.push([wx, wy, wz, blockType]);
+      continue;
+    }
+
+    if (blockType === 'water' || blockType === 'lava') {
+      // Meshed by specialized FluidMesher with variable quad heights & corner averaging
+      continue;
+    }
 
     // Task F4: F6 Cave X-Ray Mode makes stone/dirt see-through so ores & cave lava/boundaries glow
     if (caveXRay) {
@@ -248,6 +263,33 @@ self.onmessage = (event) => {
     transTiles[cOffset + 2] = tiles.bottom;
   }
 
+  const plantMatrices = new Float32Array(plantEntries.length * 16);
+  const plantColors = new Float32Array(plantEntries.length * 3);
+  const plantTiles = new Float32Array(plantEntries.length * 3);
+
+  for (let i = 0; i < plantEntries.length; i++) {
+    const [wx, wy, wz, blockType] = plantEntries[i];
+    const mOffset = i * 16;
+    plantMatrices[mOffset + 0] = 1;
+    plantMatrices[mOffset + 5] = 1;
+    plantMatrices[mOffset + 10] = 1;
+    plantMatrices[mOffset + 12] = wx;
+    plantMatrices[mOffset + 13] = wy;
+    plantMatrices[mOffset + 14] = wz;
+    plantMatrices[mOffset + 15] = 1;
+
+    const def = BLOCK_BY_ID[blockType] || BLOCK_BY_ID.fern;
+    const cOffset = i * 3;
+    plantColors[cOffset + 0] = def.color.r;
+    plantColors[cOffset + 1] = def.color.g;
+    plantColors[cOffset + 2] = def.color.b;
+
+    const tiles = def.tiles || { top: 95, side: 95, bottom: 95 };
+    plantTiles[cOffset + 0] = tiles.top;
+    plantTiles[cOffset + 1] = tiles.side;
+    plantTiles[cOffset + 2] = tiles.bottom;
+  }
+
   const naiveTris = blocks.size * 12;
   const greedyTris = Math.max(24, Math.floor(opaqueEntries.length * 1.65));
 
@@ -265,6 +307,10 @@ self.onmessage = (event) => {
       transMatrices,
       transColors,
       transTiles,
+      plantCount: plantEntries.length,
+      plantMatrices,
+      plantColors,
+      plantTiles,
       naiveTris,
       greedyTris,
     },
@@ -275,6 +321,9 @@ self.onmessage = (event) => {
       transMatrices.buffer,
       transColors.buffer,
       transTiles.buffer,
+      plantMatrices.buffer,
+      plantColors.buffer,
+      plantTiles.buffer,
     ]
   );
 };

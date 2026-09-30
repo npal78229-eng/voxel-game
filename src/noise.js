@@ -214,19 +214,22 @@ export class SeededSimplexNoise {
     const temp = this.noise2D(sx * 0.0024 + 120, sz * 0.0024 + 120); // [-1, 1]
     const moisture = this.noise2D(sx * 0.0024 - 240, sz * 0.0024 - 240); // [-1, 1]
 
-    // Map (temp, moisture) to the 10 canonical biomes in BIOME_TABLE
+    // Map (temp, moisture) to the canonical biomes in BIOME_TABLE
     if (temp < -0.45) {
       return moisture < -0.05 ? BIOME_TABLE.tundra : BIOME_TABLE.taiga;
     }
     if (temp < -0.15) {
       if (moisture < -0.22) return BIOME_TABLE.mountains;
-      if (moisture > 0.25) return BIOME_TABLE.taiga;
+      if (moisture > 0.38) return BIOME_TABLE.redwood; // Cool, very humid: Redwood Giant Forest
+      if (moisture > 0.16) return BIOME_TABLE.maple_forest; // Cool temperate: Autumn Maple Forest
+      if (moisture > -0.05) return BIOME_TABLE.taiga;
       return BIOME_TABLE.birch_forest;
     }
     if (temp < 0.22) {
       if (moisture < -0.38) return BIOME_TABLE.ocean;
       if (moisture < 0.0) return BIOME_TABLE.plains;
-      if (moisture < 0.32) return BIOME_TABLE.forest;
+      if (moisture > 0.36) return BIOME_TABLE.darkwood; // Temperate, very humid: Darkwood Forest
+      if (moisture < 0.20) return BIOME_TABLE.forest;
       return BIOME_TABLE.birch_forest;
     }
     if (temp < 0.48) {
@@ -306,65 +309,284 @@ export class SeededSimplexNoise {
   }
 
   /**
-   * Part A3.6 & A3.7 — Cross-chunk deterministic tree root check.
-   * Always uses the biome of the trunk position (tx, tz) so canopies crossing
-   * chunk or biome boundaries never split into two tree species.
+   * Deterministic cross-chunk tree candidate in an 8x8 cell (cx, cz).
    */
-  _hasTreeRootAt(tx, tz) {
-    if ((tx & 3) !== 0 || (tz & 3) !== 0) return null;
+  _getTreeInCell(cx, cz) {
+    const cellSeed = Math.imul(cx, 1610612741) ^ Math.imul(cz, 805306457) ^ this.seed;
+    const hash = ((cellSeed ^ (cellSeed >>> 13)) * 1274126177) >>> 0;
+
+    // Jittered trunk coordinates within the 8x8 cell
+    const jx = 1 + (hash % 6);
+    const jz = 1 + ((hash >>> 4) % 6);
+    const tx = cx * 8 + jx;
+    const tz = cz * 8 + jz;
+
     const biome = this.getBiomeAt(tx, tz);
     if (!biome.treeType || biome.treeChance <= 0) return null;
 
     const surfaceY = this.getSurfaceHeight(tx, tz);
-    // No trees underwater or above the Alpine snow line
     if (surfaceY <= SEA_LEVEL) return null;
     if (biome.snowLineY && surfaceY >= biome.snowLineY) return null;
 
-    if (this._hash2(tx, tz) < biome.treeChance * 4) {
-      return { surfaceY, biomeId: biome.id, treeType: biome.treeType };
+    const roll = ((hash >>> 8) % 1000) / 1000;
+    const treeChance = Math.min(0.88, biome.treeChance * 16.0); // Calibrated for 8x8 cells
+
+    if (roll < treeChance) {
+      // Tree candidate
+      let height = 6;
+      let leafVariant = 0;
+      if (biome.treeType === 'redwood') {
+        height = 24 + ((hash >>> 12) % 17); // 24 to 40 blocks!
+      } else if (biome.treeType === 'dark_oak') {
+        height = 7 + ((hash >>> 12) % 5); // 7 to 11
+      } else if (biome.treeType === 'maple') {
+        height = 6 + ((hash >>> 12) % 4); // 6 to 9
+        leafVariant = (hash >>> 16) % 3; // 0=red, 1=orange, 2=yellow
+      } else if (biome.treeType === 'pine') {
+        height = 6 + ((hash >>> 12) % 5); // 6 to 10
+      } else if (biome.treeType === 'birch') {
+        height = 5 + ((hash >>> 12) % 4); // 5 to 8
+      } else if (biome.treeType === 'cactus') {
+        height = 2 + ((hash >>> 12) % 3); // 2 to 4
+      } else {
+        // Oak
+        height = 5 + ((hash >>> 12) % 5); // 5 to 9
+      }
+      return {
+        type: 'tree',
+        treeType: biome.treeType,
+        tx,
+        tz,
+        surfaceY,
+        height,
+        leafVariant,
+      };
+    } else {
+      // Forest ground detail: fallen logs, stumps, or mossy rocks
+      const detailRoll = (hash >>> 16) % 100;
+      if (detailRoll < 8 && (biome.id === 'darkwood' || biome.id === 'redwood' || biome.id === 'forest')) {
+        return {
+          type: 'stump',
+          treeType: biome.treeType,
+          tx,
+          tz,
+          surfaceY,
+          height: 1 + (detailRoll % 2),
+        };
+      } else if (detailRoll < 18 && (biome.id === 'darkwood' || biome.id === 'redwood' || biome.id === 'maple_forest')) {
+        return {
+          type: 'fallen_log',
+          treeType: biome.treeType,
+          tx,
+          tz,
+          surfaceY,
+          dir: (hash >>> 20) % 2 === 0 ? 'X' : 'Z',
+          length: 3 + ((hash >>> 22) % 2),
+        };
+      } else if (detailRoll < 24 && (biome.id === 'darkwood' || biome.id === 'maple_forest' || biome.id === 'swamp')) {
+        return {
+          type: 'mossy_rock',
+          tx,
+          tz,
+          surfaceY,
+        };
+      }
+      return null;
+    }
+  }
+
+  _getTreeBlockAt(wx, wy, wz) {
+    // Check neighboring 8x8 cells within max canopy radius (5 blocks)
+    const minCX = Math.floor((wx - 5) / 8);
+    const maxCX = Math.floor((wx + 5) / 8);
+    const minCZ = Math.floor((wz - 5) / 8);
+    const maxCZ = Math.floor((wz + 5) / 8);
+
+    for (let cx = minCX; cx <= maxCX; cx++) {
+      for (let cz = minCZ; cz <= maxCZ; cz++) {
+        const feature = this._getTreeInCell(cx, cz);
+        if (!feature) continue;
+
+        const { type, treeType, tx, tz, surfaceY } = feature;
+        const relY = wy - surfaceY;
+        if (relY < 1) continue;
+
+        if (type === 'stump') {
+          if (wx === tx && wz === tz && relY <= feature.height) {
+            return treeType === 'dark_oak' ? 'log_darkoak' : treeType === 'redwood' ? 'log_redwood' : 'wood';
+          }
+          continue;
+        }
+
+        if (type === 'fallen_log') {
+          if (relY === 1) {
+            const logBlock =
+              treeType === 'dark_oak'
+                ? 'log_darkoak'
+                : treeType === 'redwood'
+                ? 'log_redwood'
+                : treeType === 'maple'
+                ? 'log_maple'
+                : 'wood';
+            if (feature.dir === 'X' && wz === tz && wx >= tx && wx < tx + feature.length) {
+              return logBlock;
+            }
+            if (feature.dir === 'Z' && wx === tx && wz >= tz && wz < tz + feature.length) {
+              return logBlock;
+            }
+          }
+          continue;
+        }
+
+        if (type === 'mossy_rock') {
+          if (relY === 1 && Math.abs(wx - tx) + Math.abs(wz - tz) <= 1) {
+            return (wx + wz) % 2 === 0 ? 'moss' : 'mossy_cobble';
+          }
+          continue;
+        }
+
+        // Standard or Giant Tree
+        const height = feature.height;
+        if (relY > height + 2) continue;
+
+        if (treeType === 'cactus') {
+          if (wx === tx && wz === tz && relY <= height) return 'cactus';
+          continue;
+        }
+
+        if (treeType === 'dark_oak') {
+          // 2x2 trunk: (tx, tz), (tx+1, tz), (tx, tz+1), (tx+1, tz+1)
+          const isTrunk = (wx === tx || wx === tx + 1) && (wz === tz || wz === tz + 1);
+          if (isTrunk && relY <= height) {
+            return 'log_darkoak';
+          }
+          // Wide 3-layer flat canopy (radius 4.5)
+          if (relY >= height - 2 && relY <= height + 1) {
+            const dx = wx - (tx + 0.5);
+            const dz = wz - (tz + 0.5);
+            const dist = Math.hypot(dx, dz);
+            const maxR = relY === height + 1 ? 2.5 : relY === height ? 4.8 : 3.8;
+            if (dist <= maxR) return 'leaves_darkoak';
+          }
+          continue;
+        }
+
+        if (treeType === 'redwood') {
+          // 2x2 base up to 40% height, 1x1 above
+          const splitY = Math.floor(height * 0.4);
+          const isBase2x2 = (wx === tx || wx === tx + 1) && (wz === tz || wz === tz + 1);
+          const isUpper1x1 = wx === tx && wz === tz;
+          if (relY <= splitY && isBase2x2) {
+            return 'log_redwood';
+          }
+          if (relY > splitY && relY <= height && isUpper1x1) {
+            return 'log_redwood';
+          }
+          // Cone canopy from 40% height to top
+          if (relY >= splitY && relY <= height + 1) {
+            const coneProgress = (relY - splitY) / (height - splitY + 1); // 0 to 1
+            const coneRadius = (1.0 - coneProgress) * 4.2 + 0.8;
+            const dx = wx - tx;
+            const dz = wz - tz;
+            if (Math.hypot(dx, dz) <= coneRadius) {
+              return 'leaves_redwood';
+            }
+          }
+          continue;
+        }
+
+        if (treeType === 'maple') {
+          // 1x1 trunk
+          if (wx === tx && wz === tz && relY <= height) {
+            return 'log_maple';
+          }
+          // Oval canopy
+          const leafMat =
+            feature.leafVariant === 0
+              ? 'leaves_maple_red'
+              : feature.leafVariant === 1
+              ? 'leaves_maple_orange'
+              : 'leaves_maple_yellow';
+          const dy = Math.abs(relY - (height - 1));
+          if (relY >= 3 && relY <= height + 1) {
+            const rad = Math.max(0, 3.6 - dy * 0.85);
+            if (Math.hypot(wx - tx, wz - tz) <= rad) {
+              return leafMat;
+            }
+          }
+          continue;
+        }
+
+        if (treeType === 'birch') {
+          if (wx === tx && wz === tz && relY <= height) return 'birch_wood';
+          if (relY >= height - 2 && relY <= height + 1) {
+            const rad = relY === height + 1 ? 1.5 : 2.5;
+            if (Math.hypot(wx - tx, wz - tz) <= rad) return 'birch_leaves';
+          }
+          continue;
+        }
+
+        if (treeType === 'pine') {
+          if (wx === tx && wz === tz && relY <= height) return 'pine_log';
+          if (relY >= 2 && relY <= height + 1) {
+            const layer = height + 1 - relY;
+            const rad = Math.max(0.8, (layer % 2 === 0 ? 2.5 : 1.6) - (relY / height) * 1.2);
+            if (Math.hypot(wx - tx, wz - tz) <= rad) return 'pine_leaves';
+          }
+          continue;
+        }
+
+        // Standard Oak (improved variety)
+        if (wx === tx && wz === tz && relY <= height) return 'wood';
+        if (relY >= height - 2 && relY <= height + 1) {
+          const rad = relY === height + 1 ? 1.8 : 2.8;
+          if (Math.hypot(wx - tx, wz - tz) <= rad) return 'leaves';
+        }
+      }
     }
     return null;
   }
 
-  _getTreeBlockAt(wx, wy, wz) {
-    const baseTx = wx & ~3;
-    const baseTz = wz & ~3;
+  /**
+   * Deterministic undergrowth plants (fern, tall_grass, mushrooms, forest flowers)
+   */
+  _getPlantAt(wx, wz, surfaceY, biome) {
+    if (surfaceY <= SEA_LEVEL) return null;
+    const h = this._hash2(wx * 48271, wz * 1399);
 
-    for (let gx = baseTx - 4; gx <= baseTx + 4; gx += 4) {
-      for (let gz = baseTz - 4; gz <= baseTz + 4; gz += 4) {
-        const dx = wx - gx;
-        const dz = wz - gz;
-        if (Math.abs(dx) > 2 || Math.abs(dz) > 2) continue;
-
-        const tree = this._hasTreeRootAt(gx, gz);
-        if (!tree) continue;
-
-        const relY = wy - tree.surfaceY;
-        if (relY < 1 || relY > 6) continue;
-
-        if (tree.treeType === 'cactus') {
-          if (dx === 0 && dz === 0 && relY <= 3) return 'cactus';
-          continue;
-        }
-
-        const isBirch = tree.treeType === 'birch';
-        const isPine = tree.treeType === 'pine';
-        const logType = isBirch ? 'birch_wood' : isPine ? 'pine_log' : 'wood';
-        const leafType = isBirch
-          ? 'birch_leaves'
-          : isPine
-          ? 'pine_leaves'
-          : 'leaves';
-
-        if (dx === 0 && dz === 0 && relY <= 4) {
-          return logType;
-        }
-        if (relY >= 3 && relY <= 5) {
-          const dist = Math.abs(dx) + Math.abs(dz);
-          if (relY === 5 && dist <= 1) return leafType;
-          if (relY <= 4 && dist <= 3) return leafType;
-        }
-      }
+    if (biome.id === 'darkwood') {
+      if (h < 0.10) return 'fern';
+      if (h < 0.16) return 'mushroom_red';
+      if (h < 0.22) return 'mushroom_brown';
+      return null;
+    }
+    if (biome.id === 'maple_forest') {
+      if (h < 0.09) return 'fern';
+      if (h < 0.18) return 'tall_grass_plant';
+      if (h < 0.24) return 'flower_violet';
+      return null;
+    }
+    if (biome.id === 'redwood') {
+      if (h < 0.15) return 'fern';
+      return null;
+    }
+    if (biome.id === 'forest') {
+      if (h < 0.08) return 'tall_grass_plant';
+      if (h < 0.13) return 'flower_bluebell';
+      if (h < 0.18) return 'flower_violet';
+      if (h < 0.23) return 'flower_anemone';
+      return null;
+    }
+    if (biome.id === 'plains') {
+      if (h < 0.10) return 'tall_grass_plant';
+      if (h < 0.15) return 'flower_bluebell';
+      if (h < 0.19) return 'flower_anemone';
+      return null;
+    }
+    if (biome.id === 'swamp') {
+      if (h < 0.10) return 'tall_grass_plant';
+      if (h < 0.16) return 'mushroom_brown';
+      return null;
     }
     return null;
   }
@@ -377,13 +599,17 @@ export class SeededSimplexNoise {
     if (wy < 0) return null;
     if (wy === 0) return 'bedrock';
 
-    // Above solid ground: water up to SEA_LEVEL (or tundra ice) and biome-matched trees
+    // Above solid ground: water up to SEA_LEVEL (or tundra ice), biome-matched trees, and plants
     if (wy > surfaceY) {
       if (wy <= SEA_LEVEL) {
         return biome.id === 'tundra' && wy === SEA_LEVEL ? 'ice' : 'water';
       }
-      if (wy <= surfaceY + 6) {
-        return this._getTreeBlockAt(wx, wy, wz);
+      if (wy <= surfaceY + 44) {
+        const treeBlock = this._getTreeBlockAt(wx, wy, wz);
+        if (treeBlock) return treeBlock;
+      }
+      if (wy === surfaceY + 1 && surfaceY > SEA_LEVEL) {
+        return this._getPlantAt(wx, wz, surfaceY, biome);
       }
       return null;
     }
@@ -493,6 +719,54 @@ export const BIOME_TABLE = {
     treeType: 'oak',
     treeChance: 0.025,
     mapColor: '#16a34a',
+  },
+  darkwood: {
+    id: 'darkwood',
+    name: 'Darkwood Forest',
+    surface: 'forest_floor',
+    sub: 'dirt',
+    deepSub: 'dirt',
+    underwaterFloor: 'dirt',
+    baseHeight: 22,
+    roughness: 6.5,
+    treeType: 'dark_oak',
+    treeSpecies: 'dark_oak',
+    treeChance: 0.035,
+    mapColor: '#1e3a1e',
+    deciduous: true,
+    plantChance: 0.22,
+  },
+  maple_forest: {
+    id: 'maple_forest',
+    name: 'Autumn Maple Forest',
+    surface: 'maple_floor',
+    sub: 'dirt',
+    deepSub: 'dirt',
+    underwaterFloor: 'dirt',
+    baseHeight: 23,
+    roughness: 7.0,
+    treeType: 'maple',
+    treeSpecies: 'maple',
+    treeChance: 0.028,
+    mapColor: '#b45309',
+    deciduous: true,
+    plantChance: 0.20,
+  },
+  redwood: {
+    id: 'redwood',
+    name: 'Redwood Giant Forest',
+    surface: 'needle_floor',
+    sub: 'dirt',
+    deepSub: 'dirt',
+    underwaterFloor: 'dirt',
+    baseHeight: 24,
+    roughness: 8.0,
+    treeType: 'redwood',
+    treeSpecies: 'redwood',
+    treeChance: 0.020,
+    mapColor: '#7c2d12',
+    deciduous: false,
+    plantChance: 0.18,
   },
   birch_forest: {
     id: 'birch_forest',

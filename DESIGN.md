@@ -66,3 +66,83 @@ All gameplay tuning numbers live in dedicated per-system data files under `src/c
 - **Part B (`src/collision.js` & `src/polish.js`):**
   - Shared `resolveEntityAABBCollision` (`X -> Z -> Y`), `checkAutoJumpObstacle`, `isChunkLoadedAt`, and `pushMobOutOfBlocks` in [`src/collision.js`](../src/collision.js) drive both player and mob physics, auto-jumping 1-block obstacles (`0.4s` cooldown), swimming in water, avoiding `> 3`-block cliffs for passive animals, freezing over unloaded chunks, and executing the 2 Hz 4-stage stuck recovery ladder.
 
+---
+
+## 6. Audit & Architecture: GrimWraith Combat, SoulSkeleton & Minecraft-Style Fluid Physics
+
+### 6.1 Audit Part 1: GrimWraith & Mob Multi-Attack Architecture
+1. **GrimWraith Model Inspection (`src/BlenderMobs.js`):**
+   - The model `build_grim_wraith()` creates all required visual elements: `Wraith_MainCloak` with 8 tattered hem cones, cyan glowing `Wraith_SoulVortex`, `Wraith_HoodCowl`, `Wraith_VoidInsideHood`, screaming `Wraith_Skull` + `Wraith_ScreamJaw`, cyan `Wraith_SoulEye_L/R`, sleeves, and bony hands.
+   - The giant Soul-Reaper Scythe is composed of `Wraith_ScytheStaff`, `Wraith_ScytheBlade`, and cyan `Wraith_ScytheSoulEdge`.
+   - In `createMobContext()`, primitives matching `/Scythe/i` and `loc[1] > 0` are attached directly to `armL` (left arm pivot), while right arm meshes attach to `armR`, and skull/jaw attach to `headGroup`.
+   - **Animation Rigging Hooks**: The rig returns `arms: [armL, armR]`, `headGroup`, `tailPivot`, `legs`. Animating `armL` poses the scythe overhead for windup and down for strikes. Animating `armR` and `armL` together provides casting poses for summons and soul beams.
+2. **Current AI & Attack State:**
+   - In `src/config/mobs.js`, `GrimWraith` had `behaviorClass: 'night_monster'`, `attackType: 'ranged'`, `rangedStyle: 'magic_bolt'`, which only supported a single attack.
+   - In `src/mobAttacks.js`, `NIGHT_MOB_ATTACKS.GrimWraith` had 3 attack definitions (`scythe_slash`, `summon_skeletons`, `soul_steal`), but the combat state machine was tied to an ad-hoc controller rather than a general, multi-attack architecture supporting both single and multi-attack mobs.
+   - Sunlight damage: `GrimWraith` has `burnsInSunlight: true` and takes `4.0 DPS` via `DaylightBurnSystem` (`src/daylightBurn.js`) when exposed to open daytime sky.
+
+### 6.2 Audit Part 1.5: Why the Previous Skeleton "Did Nothing" (10-Point Wiring Checklist)
+1. **Model Registration [FAIL previously]:** In `src/BlenderMobs.js`, `build_bonewalker()` called `makeCollector()`, an undefined function! This threw a fatal runtime `ReferenceError` during instantiation.
+2. **Config Entry [FAIL previously]:** `Bonewalker` had a single attack config in `MOB_CONFIGS`, but was not recognized by `NIGHT_MOB_ATTACKS` (which had a hard-coded 4-mob map).
+3. **AI Update Loop [FAIL previously]:** Summoned mobs created via `summonWraithSkeletons` failed on model creation or defaulted to standard melee without proper owner-tracking or claw scratch execution.
+4. **Attack Dispatch [FAIL previously]:** Missing unified `AttackController` capable of selecting between attacks or running custom melee strikes like Claw Scratch.
+5. **Target Acquisition [FAIL previously]:** Skeletons did not synchronize their target with their owner's target, resulting in idle wandering.
+6. **Damage Path [PASS/WARN]:** Direct melee damage path exists in `MeleeAttack.js` and `tryAttackMob`, but lacked the specific Claw Scratch damage (2 HP) and knockback tuning.
+7. **Chunk-Loaded Freeze [PASS]:** `isChunkLoadedAt` freezes mobs over unloaded chunks. Summoned mobs must always be placed on loaded columns.
+8. **Despawn Rules [FAIL previously]:** Night monster cleanup at dawn would delete summoned mobs immediately or leave them orphaned without crumbling on parent Wraith death.
+9. **Collision Size [PASS]:** Hitbox size (`0.75 x 1.85 x 0.75`) matches skeleton dimensions.
+10. **Console & Debug [FAIL previously]:** `/spawn Bonewalker` crashed due to `makeCollector()`. `/forceattack` was not implemented.
+
+### 6.3 Audit Part 2: Water & Lava Systems
+1. **Data Storage:**
+   - Chunks store blocks in `Map<"wx,wy,wz", blockType>` in `src/chunk.js`.
+   - There is NO fluid level data, no source vs flowing distinction, and no falling column tracking.
+2. **Meshing & Rendering:**
+   - `src/workers/chunkWorker.js` filters transparent blocks (`water`) into `transEntries` and opaque blocks into `opaqueEntries`.
+   - `water` is rendered using an `InstancedMesh` of standard 1x1x1 cubes with `sharedWaterMaterial` (`depthWrite: false`).
+   - `lava` is treated as a solid opaque block and rendered as 1x1x1 cubes with `sharedMaterial`.
+   - There are NO variable heights, NO corner averaging, NO flow direction geometry, and NO fluid quad meshing.
+3. **Fluid Simulation:**
+   - Zero fluid physics or flow simulation exists in the codebase. Water and lava are static placeable voxels.
+4. **Entity Physics in Fluid:**
+   - In `src/controls.js`, player collision checks ignore water entirely (`b !== 'water'`). The player falls through water at full gravity, takes full fall damage upon hitting the seabed, cannot swim up, and has no drowning or oxygen bubble UI.
+   - Lava does not slow the player, does not inflict fire damage, and does not burn dropped items.
+   - Mobs have basic buoyancy upward acceleration (`18.0 * dt`) in `collision.js`, but no lava avoidance or lava slowdown.
+5. **Block Definition & Magma:**
+   - `lava` is defined with `name: 'Molten Lava'` and tile 45. There is NO separate `Molten Magma` block in the game.
+6. **Texture & Visuals:**
+   - Both water and lava are single 16x16 static tiles in `public/assets/blocks/atlas.png`.
+   - No animated frame strips exist; only a primitive shader UV scroll offset was attempted.
+
+---
+
+## 7. Audit & Architecture: Forest Biomes, Climate System, Animal Climate Behavior & Flying Birds
+
+### 7.1 Section 0 Codebase Audit Findings
+1. **Biomes & Terrain (`src/noise.js` & `src/workers/chunkWorker.js`):**
+   - `BIOME_TABLE` contains 10 canonical biomes. `getBiome(wx, wz, seed)` maps 2D low-frequency temperature/moisture fields to biome records.
+   - Surface, subsurface (`sub`, `deepSub`), and `underwaterFloor` are strictly owned per biome with 0 random block mixing.
+   - `getSurfaceHeight(wx, wz)` blends baseHeight and roughness over a 16-block kernel using $C^1$-continuous smoothstep ($3t^2 - 2t^3$).
+   - Three new high-moisture forest biomes will be added: `darkwood` (`forest_floor`), `maple_forest` (`maple_floor`), and `redwood` (`needle_floor`).
+2. **Trees & Determinism (`src/noise.js`):**
+   - `_hasTreeRootAt` and `_getTreeBlockAt` evaluate deterministic tree positions across chunk boundaries without `Math.random()`.
+   - We will centralize tree dimensions, spacing, and branch rules in `src/config/trees.js`.
+   - Dark Oak features a 2x2 trunk with wide 3-layer flat canopy (radius 4-5).
+   - Maple features an oval canopy (radius 3-4) with red, orange, and yellow leaf variants.
+   - Redwood features a 24-40 block tall cone canopy with 2x2 base trunk and 1x1 upper trunk.
+3. **Texture Atlas (`tools/generate-textures.js` & `src/blocks.js`):**
+   - Generates 16x16 grid (256 tiles max) in 32x32 pixel art. Currently tiles 0..70 are utilized; tiles 71..255 are free.
+   - New textures for Dark Oak, Maple, Redwood, forest floors, moss, and cross-plane plant sprites will be assigned indices 71..105.
+4. **Day/Night Cycle & Sunlight Burning (`src/config/spawning.js`, `src/daylightBurn.js`, `src/polish.js`):**
+   - `timeOfDay` was duplicated between `polish.js` and `spawning.js`.
+   - Central `ClimateSystem` (`src/climate/ClimateSystem.js`) will become the single source of truth for sun position, night boundaries (`NIGHT_START`, `NIGHT_END`), day length variation by season, and sunlight burning.
+5. **Environment & Weather:**
+   - Smooth weather state machine (`clear`, `partly_cloudy`, `overcast`, `light_rain`, `heavy_rain`, `thunderstorm`, `snow`, `fog`, `dust_haze`).
+   - Seasonal foliage tint, leaf thinning, render-only snow buildup, and wet darkening will be implemented via shader uniforms (`sharedShaderUniforms`) with zero chunk re-meshing.
+6. **Mob AI & Flying Birds:**
+   - `Bird` (Crimson Raptor Falcon) in `src/BlenderMobs.js` has wing shoulder and 6 primary flight feathers on each side attached to `armL` (`mob.arms[0]`) and `armR` (`mob.arms[1]`).
+   - Root cause of birds not flying: `Bird` was configured with `behaviorClass: 'passive'` in `src/config/mobs.js` and updated in `src/polish.js` as a ground mob subject to standard gravity, terrain snapping, and auto-jump without wing animation.
+   - Solution: Set `behaviorClass: 'flying'`, wire `src/ai/BirdFlightAI.js` with 3D flight states (`Perch`, `TakeOff`, `Fly`, `Soar`, `Land`, `Flee`, `Migrate`), terrain following, obstacle raycasts, banking, and procedural wing flapping via `mob.arms[0]` and `mob.arms[1]`.
+   - Animal climate AI: `src/climate/AnimalClimateBehavior.js` computes climate modifiers every 1s (staggered) and drives `Shelter`, `Rest`, `Drink`, `Huddle`.
+
+

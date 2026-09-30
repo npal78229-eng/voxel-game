@@ -19,6 +19,8 @@ import {
   BlockBreakParticles,
 } from './polish.js';
 import { TERRAIN_CONFIG, SEA_LEVEL, getBiome, BIOME_TABLE } from './noise.js';
+import { climateSystem } from './climate/ClimateSystem.js';
+import { FLUID_CONFIG } from './config/fluids.js';
 
 // ============================================================================
 // Voxel Realms v2.0 — Complete Upgrade Suite (Phases U0–U7)
@@ -99,6 +101,8 @@ const heartsBarEl = document.getElementById('hearts-bar');
 const hungerBarEl = document.getElementById('hunger-bar');
 const hurtFlashEl = document.getElementById('hurt-flash-overlay');
 const underwaterEl = document.getElementById('underwater-overlay');
+const lavaOverlayEl = document.getElementById('lava-overlay');
+const oxygenBarEl = document.getElementById('oxygen-bar');
 const toastEl = document.getElementById('toast-banner');
 
 let toastTimeout = null;
@@ -110,6 +114,37 @@ function showToast(message, durationMs = 2800) {
   toastTimeout = setTimeout(() => {
     toastEl.classList.add('hidden');
   }, durationMs);
+}
+
+function renderOxygenBar() {
+  if (!oxygenBarEl || !controls) return;
+  const isSubmerged = controls.headSubmerged && controls.headSubmergedType === 'water';
+  const shouldShow = isSubmerged || controls.oxygen < controls.maxOxygen - 0.05;
+  oxygenBarEl.classList.toggle('hidden', !shouldShow);
+  if (!shouldShow) return;
+
+  const totalBubbles = FLUID_CONFIG.water.bubbleCount || 10;
+  const activeBubbles = Math.max(
+    0,
+    Math.min(
+      totalBubbles,
+      Math.ceil((controls.oxygen / controls.maxOxygen) * totalBubbles)
+    )
+  );
+
+  if (oxygenBarEl.children.length !== totalBubbles) {
+    oxygenBarEl.innerHTML = '';
+    for (let i = 0; i < totalBubbles; i++) {
+      const b = document.createElement('div');
+      b.className = 'oxygen-bubble';
+      oxygenBarEl.appendChild(b);
+    }
+  }
+
+  for (let i = 0; i < totalBubbles; i++) {
+    const b = oxygenBarEl.children[i];
+    b.classList.toggle('popped', i >= activeBubbles);
+  }
 }
 
 function renderSurvivalBars() {
@@ -187,6 +222,9 @@ const controls = new FirstPersonController(
   },
   (fallDmg) => {
     applyPlayerDamage(fallDmg, 'Fall Damage');
+  },
+  (amount, source, opts) => {
+    applyPlayerDamage(amount, source, opts);
   }
 );
 controls.syncFromCamera();
@@ -538,6 +576,22 @@ function executeConsoleCommand(cmdStr) {
   } else if (cmd === 'killmobs') {
     const killedCount = mobs.killAllHostileMobs();
     showToast(`Killed ${killedCount} hostile & summoned mobs!`);
+  } else if (cmd === 'forceattack') {
+    const mobType = parts[1] || 'GrimWraith';
+    const attackId = parts[2] || 'scythe_slash';
+    const res = mobs.forceMobAttack(
+      mobType,
+      attackId,
+      controls.playerPosition,
+      world,
+      statusEffects,
+      sfx
+    );
+    if (res.success) {
+      showToast(`Forced ${res.mobType} to execute '${res.attackId}'!`);
+    } else {
+      showToast(`Force attack failed: ${res.reason}`);
+    }
   } else if (cmd === 'biome') {
     const px = Math.round(controls.playerPosition.x);
     const pz = Math.round(controls.playerPosition.z);
@@ -549,6 +603,63 @@ function executeConsoleCommand(cmdStr) {
     );
   } else if (cmd === 'biomemap') {
     toggleBiomeMapOverlay();
+  } else if (cmd === 'season') {
+    const s = (parts[1] || 'spring').toLowerCase();
+    const ok = climateSystem.setSeason(s);
+    if (ok) {
+      showToast(`Season set to ${s.toUpperCase()} (Day ${climateSystem.dayCount + 1})`);
+    } else {
+      showToast(`Invalid season '${s}' (valid: spring, summer, autumn, winter)`);
+    }
+  } else if (cmd === 'climate') {
+    const px = Math.round(controls.playerPosition.x);
+    const pz = Math.round(controls.playerPosition.z);
+    const py = controls.playerPosition.y;
+    const b = getBiome(px, pz, world.seed);
+    const temp = climateSystem.temperatureAt(b, py);
+    const precip = climateSystem.precipTypeAt(b, py);
+    showToast(
+      `[Climate] ${climateSystem.season.toUpperCase()} Day ${climateSystem.dayCount + 1} | Biome: ${b.name} | Temp: ${temp}°C | Weather: ${climateSystem.weather} | Precip: ${precip}`,
+      6500
+    );
+  } else if (cmd === 'climatedebug') {
+    const b = getBiome(Math.round(controls.playerPosition.x), Math.round(controls.playerPosition.z), world.seed);
+    const temp = climateSystem.temperatureAt(b, controls.playerPosition.y);
+    const precip = climateSystem.precipTypeAt(b, controls.playerPosition.y);
+    console.table({
+      season: climateSystem.season,
+      dayCount: climateSystem.dayCount,
+      seasonProgress: climateSystem.seasonProgress.toFixed(2),
+      timeOfDay: climateSystem.timeOfDay.toFixed(3),
+      weather: climateSystem.weather,
+      targetWeather: climateSystem.targetWeather,
+      precipIntensity: climateSystem.precipIntensity.toFixed(2),
+      precipType: precip,
+      localTempC: temp,
+      cloudCover: climateSystem.cloudCover.toFixed(2),
+      windStrength: climateSystem.windVector.strength.toFixed(2),
+      timeScale: climateSystem.timeScale,
+    });
+    showToast(`Logged deep Climate telemetry to DevTools console (F12)`);
+  } else if (cmd === 'timespeed') {
+    const spd = Number(parts[1]) || 1.0;
+    climateSystem.timeScale = spd;
+    showToast(`Climate time speed multiplier set to ${spd}x`);
+  } else if (cmd === 'spawnflock') {
+    const count = Number(parts[1]) || 4;
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    const fx = controls.playerPosition.x + forward.x * 6.0;
+    const fz = controls.playerPosition.z + forward.z * 6.0;
+    const flock = mobs.spawnFlock(fx, fz, count);
+    showToast(`Spawned flock of ${flock.length} flying birds ahead!`);
+  } else if (cmd === 'birdstate') {
+    const st = parts[1] || 'Fly';
+    const res = mobs.forceNearestBirdState(st, controls.playerPosition);
+    if (res.success) {
+      showToast(`Forced nearest bird to state '${res.state}'!`);
+    } else {
+      showToast(`Bird state error: ${res.reason}`);
+    }
   }
 }
 
@@ -819,7 +930,10 @@ function animate() {
   // 3. Update Sky, Animated Fluids, Mobs & Particles
   sharedShaderUniforms.uTime.value += deltaTime;
   camera.getWorldDirection(lookDirection);
-  dayNight.update(deltaTime, controls.playerPosition);
+  const currentBiome = typeof world.getBiomeAt === 'function'
+    ? world.getBiomeAt(controls.playerPosition.x, controls.playerPosition.z)
+    : null;
+  dayNight.update(deltaTime, controls.playerPosition, currentBiome);
   mobs.update(
     deltaTime,
     controls.playerPosition,

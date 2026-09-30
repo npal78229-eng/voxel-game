@@ -7,6 +7,7 @@ import { WORLD_MAX_Y } from './noise.js';
 export const MOB_BURN_RATES = {
   BloodCrawler: 3.0, // Fragile, dies fast
   Bonewalker: 4.0, // Summoned skeleton: crumbles almost instantly
+  SoulSkeleton: 4.0,
   Skeleton: 4.0,
   ShadowStalker: 2.0, // Screeches when it ignites
   FleshGhoul: 1.5, // Tanky, takes longest among non-Wraiths

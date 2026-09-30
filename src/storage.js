@@ -52,6 +52,14 @@ export function serializeGameState({ world, controls, inventory, ui, dayNight, m
     ),
     selectedHotbarIndex: ui ? ui.selectedIndex : 0,
     dayCycleTime: dayNight ? dayNight.timeOfDay : 0.25,
+    climate: dayNight?.climate
+      ? {
+          dayCount: dayNight.climate.dayCount,
+          weather: dayNight.climate.weather,
+          seed: dayNight.climate.seed,
+          timeOfDay: dayNight.climate.timeOfDay,
+        }
+      : null,
     savedMobs: mobs
       ? mobs.mobs
           .filter((m) => m.hp > 0)
@@ -129,6 +137,16 @@ export function deserializeGameState(
 
   if (dayNight && typeof data.dayCycleTime === 'number') {
     dayNight.timeOfDay = data.dayCycleTime;
+  }
+
+  if (data.climate && dayNight?.climate) {
+    if (typeof data.climate.dayCount === 'number') dayNight.climate.dayCount = data.climate.dayCount;
+    if (typeof data.climate.weather === 'string') dayNight.climate.setWeather(data.climate.weather);
+    if (typeof data.climate.seed === 'number') dayNight.climate.seed = data.climate.seed;
+    if (typeof data.climate.timeOfDay === 'number') {
+      dayNight.climate.timeOfDay = data.climate.timeOfDay;
+      dayNight.timeOfDay = data.climate.timeOfDay;
+    }
   }
 
   // Task F2: If loading during the DAY, strip any saved night_monster not near player

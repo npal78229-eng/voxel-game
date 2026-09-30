@@ -31,7 +31,19 @@ function _isSolid(world, bx, by, bz) {
   }
   if (typeof world.getBlock === 'function') {
     const b = world.getBlock(bx, by, bz);
-    return Boolean(b && b !== 'water');
+    return Boolean(b && b !== 'water' && b !== 'lava');
+  }
+  return false;
+}
+
+function _isLava(world, bx, by, bz) {
+  if (!world) return false;
+  if (typeof world.getFluid === 'function') {
+    const f = world.getFluid(bx, by, bz);
+    if (f && f.type === 'lava') return true;
+  }
+  if (typeof world.getBlock === 'function') {
+    return world.getBlock(bx, by, bz) === 'lava';
   }
   return false;
 }
@@ -108,6 +120,10 @@ export function evaluateObstacleAhead(
   const checkZ = Math.floor(pz + dirZ * probeDist + 0.5);
   const footBlockY = Math.floor(feetY + 0.5);
 
+  if (_isLava(world, checkX, footBlockY, checkZ)) {
+    return 'blocked_tall'; // Lava hazard: treat as impassable obstacle so mob turns away
+  }
+
   const footSolid = _isSolid(world, checkX, footBlockY, checkZ);
   const headHeightBlocks = Math.max(1, Math.ceil(height));
 
@@ -134,7 +150,7 @@ export function evaluateObstacleAhead(
 
 /**
  * Part B3.2 — Checks if stepping forward in (dirX, dirZ) would drop the entity off a cliff
- * deeper than maxDropBlocks (default 3 blocks for passive mobs).
+ * deeper than maxDropBlocks (default 3 blocks for passive mobs) or drop into dangerous lava.
  */
 export function isCliffDropAhead(
   world,
@@ -154,11 +170,18 @@ export function isCliffDropAhead(
 
   for (let drop = 0; drop <= maxDropBlocks; drop++) {
     const y = currentGroundY - drop;
+    if (_isLava(world, checkX, y, checkZ)) {
+      return true; // Dropping into lava is hazardous!
+    }
     if (_isSolid(world, checkX, y, checkZ)) {
       return false; // Found solid ground within allowed drop
     }
     if (typeof world.getBlock === 'function' && world.getBlock(checkX, y, checkZ) === 'water') {
       return false; // Water below is safe
+    }
+    if (typeof world.getFluid === 'function') {
+      const f = world.getFluid(checkX, y, checkZ);
+      if (f && f.type === 'water') return false; // Water below is safe
     }
   }
   return true; // Drop exceeds maxDropBlocks!
@@ -182,18 +205,34 @@ export function moveEntityWithAABB(
   let blockedX = false;
   let blockedZ = false;
 
-  // 1. Water Buoyancy vs Gravity on Y Axis (Resolved FIRST when jumping so entity rises before moving forward over the 1-block ledge)
+  // 1. Water & Lava Buoyancy vs Gravity on Y Axis (Resolved FIRST when jumping so entity rises before moving forward over the 1-block ledge)
   const ix = Math.floor(pos.x + 0.5);
   const iy = Math.floor(pos.y + 0.5);
   const iz = Math.floor(pos.z + 0.5);
-  const inWater =
-    typeof world?.getBlock === 'function' &&
-    (world.getBlock(ix, iy, iz) === 'water' ||
-      world.getBlock(ix, iy - 1, iz) === 'water');
+
+  const getFluidType = (x, y, z) => {
+    if (typeof world?.getFluid === 'function') {
+      const f = world.getFluid(x, y, z);
+      if (f) return f.type;
+    }
+    if (typeof world?.getBlock === 'function') {
+      const b = world.getBlock(x, y, z);
+      if (b === 'water' || b === 'lava') return b;
+    }
+    return null;
+  };
+
+  const feetFluid = getFluidType(ix, iy, iz) || getFluidType(ix, iy - 1, iz);
+  const inWater = feetFluid === 'water';
+  const inLava = feetFluid === 'lava';
 
   if (inWater) {
     // Swim upward so the mob never sinks or sticks at the bottom of rivers/oceans
     state.velocityY = Math.min(3.5, (state.velocityY || 0) + 18.0 * dt);
+    state.onGround = true;
+  } else if (inLava) {
+    // Mob paddles upward in lava (slower swim speed)
+    state.velocityY = Math.min(1.5, (state.velocityY || 0) + 12.0 * dt);
     state.onGround = true;
   } else {
     state.velocityY = Math.max(-28.0, (state.velocityY || 0) - GRAVITY_ACCEL * dt);
@@ -202,7 +241,7 @@ export function moveEntityWithAABB(
   const dy = state.velocityY * dt;
   if (!isBoxColliding(world, pos.x, pos.y + dy, pos.z, halfWidth, height)) {
     pos.y += dy;
-    if (!inWater) {
+    if (!inWater && !inLava) {
       state.onGround = false;
     }
   } else {
@@ -252,7 +291,7 @@ export function moveEntityWithAABB(
     state.onGround = true;
   }
 
-  return { blockedHorizontally: blockedX || blockedZ, inWater };
+  return { blockedHorizontally: blockedX || blockedZ, inWater, inLava };
 }
 
 /**

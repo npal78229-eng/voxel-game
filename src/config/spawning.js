@@ -35,12 +35,18 @@ export const SPAWN_CONFIG = {
   PASSIVE_POOL: ['Pig', 'Cow', 'Sheep', 'Rabbit', 'Bird', 'Cat', 'Chicken'],
 };
 
+import { climateSystem } from '../climate/ClimateSystem.js';
+
 /**
- * Exposes canonical isNight(timeOfDay) check (55% to 95% of cycle).
+ * Exposes canonical isNight(timeOfDay) check using ClimateSystem getSunTimes().
  */
 export function isNightTime(timeOfDay) {
-  const t = ((timeOfDay % 1) + 1) % 1;
-  return t >= SPAWN_CONFIG.NIGHT_START && t <= SPAWN_CONFIG.NIGHT_END;
+  if (timeOfDay !== undefined) {
+    const t = ((timeOfDay % 1) + 1) % 1;
+    const { nightStart, nightEnd } = climateSystem.getSunTimes();
+    return t >= nightStart && t <= nightEnd;
+  }
+  return climateSystem.isNight();
 }
 
 /**

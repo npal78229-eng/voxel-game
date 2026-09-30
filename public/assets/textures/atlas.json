@@ -360,6 +360,161 @@
       "index": 70,
       "col": 6,
       "row": 4
+    },
+    "log_darkoak_top": {
+      "index": 71,
+      "col": 7,
+      "row": 4
+    },
+    "log_darkoak_side": {
+      "index": 72,
+      "col": 8,
+      "row": 4
+    },
+    "planks_darkoak": {
+      "index": 73,
+      "col": 9,
+      "row": 4
+    },
+    "leaves_darkoak": {
+      "index": 74,
+      "col": 10,
+      "row": 4
+    },
+    "log_maple_top": {
+      "index": 75,
+      "col": 11,
+      "row": 4
+    },
+    "log_maple_side": {
+      "index": 76,
+      "col": 12,
+      "row": 4
+    },
+    "planks_maple": {
+      "index": 77,
+      "col": 13,
+      "row": 4
+    },
+    "leaves_maple_red": {
+      "index": 78,
+      "col": 14,
+      "row": 4
+    },
+    "leaves_maple_orange": {
+      "index": 79,
+      "col": 15,
+      "row": 4
+    },
+    "leaves_maple_yellow": {
+      "index": 80,
+      "col": 0,
+      "row": 5
+    },
+    "log_redwood_top": {
+      "index": 81,
+      "col": 1,
+      "row": 5
+    },
+    "log_redwood_side": {
+      "index": 82,
+      "col": 2,
+      "row": 5
+    },
+    "planks_redwood": {
+      "index": 83,
+      "col": 3,
+      "row": 5
+    },
+    "leaves_redwood": {
+      "index": 84,
+      "col": 4,
+      "row": 5
+    },
+    "forest_floor_top_a": {
+      "index": 85,
+      "col": 5,
+      "row": 5
+    },
+    "forest_floor_top_b": {
+      "index": 86,
+      "col": 6,
+      "row": 5
+    },
+    "forest_floor_side": {
+      "index": 87,
+      "col": 7,
+      "row": 5
+    },
+    "maple_floor_top_a": {
+      "index": 88,
+      "col": 8,
+      "row": 5
+    },
+    "maple_floor_top_b": {
+      "index": 89,
+      "col": 9,
+      "row": 5
+    },
+    "maple_floor_side": {
+      "index": 90,
+      "col": 10,
+      "row": 5
+    },
+    "needle_floor_top_a": {
+      "index": 91,
+      "col": 11,
+      "row": 5
+    },
+    "needle_floor_top_b": {
+      "index": 92,
+      "col": 12,
+      "row": 5
+    },
+    "needle_floor_side": {
+      "index": 93,
+      "col": 13,
+      "row": 5
+    },
+    "moss": {
+      "index": 94,
+      "col": 14,
+      "row": 5
+    },
+    "fern": {
+      "index": 95,
+      "col": 15,
+      "row": 5
+    },
+    "tall_grass_plant": {
+      "index": 96,
+      "col": 0,
+      "row": 6
+    },
+    "mushroom_red": {
+      "index": 97,
+      "col": 1,
+      "row": 6
+    },
+    "mushroom_brown": {
+      "index": 98,
+      "col": 2,
+      "row": 6
+    },
+    "flower_bluebell": {
+      "index": 99,
+      "col": 3,
+      "row": 6
+    },
+    "flower_violet": {
+      "index": 100,
+      "col": 4,
+      "row": 6
+    },
+    "flower_anemone": {
+      "index": 101,
+      "col": 5,
+      "row": 6
     }
   }
 }

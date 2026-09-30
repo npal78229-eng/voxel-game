@@ -36,6 +36,27 @@ export const CRAFTING_RECIPES = [
     output: { itemType: 'pine_planks', count: 4 },
   },
   {
+    id: 'darkoak_planks_from_log',
+    name: 'Dark Oak Planks (x4)',
+    description: '1 Dark Oak Log -> 4 Dark Oak Planks',
+    inputs: { log_darkoak: 1 },
+    output: { itemType: 'planks_darkoak', count: 4 },
+  },
+  {
+    id: 'maple_planks_from_log',
+    name: 'Maple Planks (x4)',
+    description: '1 Maple Log -> 4 Maple Planks',
+    inputs: { log_maple: 1 },
+    output: { itemType: 'planks_maple', count: 4 },
+  },
+  {
+    id: 'redwood_planks_from_log',
+    name: 'Redwood Planks (x4)',
+    description: '1 Redwood Log -> 4 Redwood Planks',
+    inputs: { log_redwood: 1 },
+    output: { itemType: 'planks_redwood', count: 4 },
+  },
+  {
     id: 'crafting_table_from_planks',
     name: 'Crafting Table (x1)',
     description: '4 Oak Planks -> 1 Crafting Table',

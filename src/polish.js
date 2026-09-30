@@ -26,6 +26,7 @@ import {
   RangedMagicAttack,
   ProjectileManager,
 } from './combat/attacks/RangedMagicAttack.js';
+import { AttackController } from './combat/AttackController.js';
 import {
   NightMobCombatController,
   NIGHT_MOB_ATTACKS,
@@ -43,6 +44,9 @@ import {
   moveEntityWithAABB,
   pushEntityOutOfBlocks,
 } from './collision.js';
+import { climateSystem } from './climate/ClimateSystem.js';
+import { BirdFlightAI } from './ai/BirdFlightAI.js';
+import { AnimalClimateBehavior } from './climate/AnimalClimateBehavior.js';
 
 // ============================================================================
 // Phases U2.3, U3.6, U5 & Tasks F1, F2, F3 — Combat, Spawning & 16-Mob Suite
@@ -247,9 +251,10 @@ export class DayNightCycle {
   constructor(scene, lights) {
     this.scene = scene;
     this.lights = lights;
-    this.timeOfDay = 0.23; // Start at clear morning/noon (daytime)
-    this.dayDurationSeconds = 240;
-    this.weather = 'clear';
+    this.climate = climateSystem;
+    this.timeOfDay = this.climate.timeOfDay;
+    this.dayDurationSeconds = this.climate.dayDurationSeconds;
+    this.weather = this.climate.weather;
 
     this.noonSky = new THREE.Color(0x7cc8f8);
     this.sunsetSky = new THREE.Color(0xf97316);
@@ -261,6 +266,7 @@ export class DayNightCycle {
     this._createStarField();
     this._createClouds();
     this._createWeatherParticles();
+    this._createFireflies();
   }
 
   _createCelestialBodies() {
@@ -343,49 +349,83 @@ export class DayNightCycle {
     this.scene.add(this.weatherPoints);
   }
 
-  setWeather(mode) {
-    this.weather = ['clear', 'rain', 'snow'].includes(mode) ? mode : 'clear';
-    this.weatherPoints.visible = this.weather !== 'clear';
-    if (this.weather === 'snow') {
-      this.weatherMat.color.setHex(0xffffff);
-      this.weatherMat.size = 0.45;
-    } else {
-      this.weatherMat.color.setHex(0x60a5fa);
-      this.weatherMat.size = 0.28;
+  _createFireflies() {
+    const count = 60;
+    const positions = new Float32Array(count * 3);
+    this.fireflyPointsData = [];
+    for (let i = 0; i < count; i++) {
+      const rx = (Math.random() - 0.5) * 28;
+      const ry = 1.0 + Math.random() * 6.0;
+      const rz = (Math.random() - 0.5) * 28;
+      positions[i * 3] = rx;
+      positions[i * 3 + 1] = ry;
+      positions[i * 3 + 2] = rz;
+      this.fireflyPointsData.push({
+        phase: Math.random() * Math.PI * 2,
+        speed: 0.6 + Math.random() * 0.9,
+        radX: 1.0 + Math.random() * 2.0,
+        radZ: 1.0 + Math.random() * 2.0,
+        baseY: ry,
+      });
     }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    this.fireflyMat = new THREE.PointsMaterial({
+      color: 0xccff33,
+      size: 0.32,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    this.fireflies = new THREE.Points(geo, this.fireflyMat);
+    this.fireflies.visible = false;
+    this.scene.add(this.fireflies);
+  }
+
+  setWeather(mode) {
+    this.climate.setWeather(mode);
+    this.weather = this.climate.weather;
+    this.weatherPoints.visible = this.weather !== 'clear';
   }
 
   advanceTime(step = 0.08) {
-    this.timeOfDay = (this.timeOfDay + step) % 1.0;
+    this.climate.timeOfDay = (this.climate.timeOfDay + step) % 1.0;
+    this.timeOfDay = this.climate.timeOfDay;
   }
 
-  /**
-   * Task F2: Uses SPAWN_CONFIG.NIGHT_START (0.55) to NIGHT_END (0.95)
-   */
   isNight() {
-    return isNightTime(this.timeOfDay);
+    return this.climate.isNight();
   }
 
   getDebugReadout() {
-    return formatTimeDebugReadout(this.timeOfDay);
+    const info = this.climate.getSunTimes();
+    const season = this.climate.season.toUpperCase();
+    const day = this.climate.dayCount + 1;
+    return `[${season} Day ${day}] ${formatTimeDebugReadout(this.timeOfDay)} (${this.weather})`;
   }
 
   getLabel() {
     const t = this.timeOfDay;
+    const season = this.climate.season.charAt(0).toUpperCase() + this.climate.season.slice(1);
+    const day = this.climate.dayCount + 1;
     const w = this.weather !== 'clear' ? ` (${this.weather})` : '';
-    if (this.isNight()) return `Night${w} [${Math.round(t * 100)}%]`;
-    if (t >= 0.45 && t < SPAWN_CONFIG.NIGHT_START) return `Dusk${w} [${Math.round(t * 100)}%]`;
-    if (t > SPAWN_CONFIG.NIGHT_END || t < 0.1) return `Dawn${w} [${Math.round(t * 100)}%]`;
-    return `Day${w} [${Math.round(t * 100)}%]`;
+    let phase = 'Day';
+    if (this.isNight()) phase = 'Night';
+    else if (t >= 0.45 && t < this.climate.getSunTimes().nightStart) phase = 'Dusk';
+    else if (t > this.climate.getSunTimes().nightEnd || t < 0.1) phase = 'Dawn';
+    return `${season} D${day} - ${phase}${w} [${Math.round(t * 100)}%]`;
   }
 
-  update(deltaTime, playerPosition) {
-    this.timeOfDay =
-      (this.timeOfDay + deltaTime / this.dayDurationSeconds) % 1.0;
+  update(deltaTime, playerPosition, currentBiome = null) {
+    // 1. Advance climate system (seasons, temperature, weather transitions, uniforms & audio)
+    this.climate.update(deltaTime, playerPosition, currentBiome);
+    this.timeOfDay = this.climate.timeOfDay;
+    this.weather = this.climate.weather;
 
-    const angle = this.timeOfDay * Math.PI * 2;
-    const sunElevation = Math.sin(angle);
-    const sunHorizontal = Math.cos(angle);
+    const sunTimes = this.climate.getSunTimes();
+    const sunElevation = sunTimes.sunElevation;
+    const sunHorizontal = sunTimes.sunHorizontal;
 
     const snapX = Math.round(playerPosition.x * 2) / 2;
     const snapZ = Math.round(playerPosition.z * 2) / 2;
@@ -417,22 +457,47 @@ export class DayNightCycle {
     this.stars.position.set(playerPosition.x, 0, playerPosition.z);
     this.starMat.opacity = Math.max(0, Math.min(0.95, -sunElevation * 1.4));
 
+    // Cloud motion driven by climate wind vector
+    const wind = this.climate.windVector;
+    const windSpeedX = (wind?.x || 1.0) * (wind?.strength || 0.2) * 12;
+    const windSpeedZ = (wind?.z || 0.3) * (wind?.strength || 0.2) * 12;
     for (const cloud of this.cloudGroup.children) {
-      cloud.position.x += deltaTime * 1.1;
+      cloud.position.x += deltaTime * windSpeedX;
+      cloud.position.z += deltaTime * windSpeedZ;
       if (cloud.position.x - playerPosition.x > 65) cloud.position.x -= 130;
       if (cloud.position.x - playerPosition.x < -65) cloud.position.x += 130;
       if (cloud.position.z - playerPosition.z > 65) cloud.position.z -= 130;
       if (cloud.position.z - playerPosition.z < -65) cloud.position.z += 130;
     }
 
-    if (this.weatherPoints.visible) {
+    // Weather precipitation particles: adapt to precipTypeAt(currentBiome)
+    const precip = this.climate.precipTypeAt(currentBiome, playerPosition?.y || 20);
+    if (precip === 'none') {
+      this.weatherPoints.visible = false;
+    } else {
+      this.weatherPoints.visible = true;
+      let fallSpeed = 15.0;
+      if (precip === 'snow') {
+        this.weatherMat.color.setHex(0xffffff);
+        this.weatherMat.size = 0.45;
+        fallSpeed = 3.6;
+      } else if (precip === 'dust_haze') {
+        this.weatherMat.color.setHex(0xd97706);
+        this.weatherMat.size = 0.38;
+        fallSpeed = 1.8;
+      } else {
+        // Rain
+        this.weatherMat.color.setHex(0x60a5fa);
+        this.weatherMat.size = 0.28;
+        fallSpeed = 16.0;
+      }
+
       this.weatherPoints.position.set(
         playerPosition.x,
         playerPosition.y - 6,
         playerPosition.z
       );
       const posAttr = this.weatherPoints.geometry.attributes.position;
-      const fallSpeed = this.weather === 'snow' ? 3.8 : 14.5;
       for (let i = 0; i < posAttr.count; i++) {
         let y = posAttr.getY(i) - fallSpeed * deltaTime;
         if (y < 0) y = 24;
@@ -441,6 +506,7 @@ export class DayNightCycle {
       posAttr.needsUpdate = true;
     }
 
+    // Sky & Lighting Color Curve
     if (!this.isNight() && sunElevation > 0.15) {
       const f = Math.min(1, (sunElevation - 0.15) / 0.85);
       this.currentSky.copy(this.sunsetSky).lerp(this.noonSky, f);
@@ -464,12 +530,52 @@ export class DayNightCycle {
       this.currentSky.lerp(this.rainSky, 0.45);
     }
 
+    // Lightning Flash Integration
+    if (this.climate.lightning.flash > 0) {
+      const flash = this.climate.lightning.flash;
+      this.lights.sunLight.intensity = Math.max(this.lights.sunLight.intensity, 1.8 * flash);
+      this.lights.ambientLight.intensity = Math.max(this.lights.ambientLight.intensity, 1.2 * flash);
+      this.lights.ambientLight.color.lerp(new THREE.Color(0xffffff), flash);
+      this.currentSky.lerp(new THREE.Color(0xffffff), flash * 0.7);
+    }
+
     this.scene.background.copy(this.currentSky);
     if (this.scene.fog) {
       this.scene.fog.color.copy(this.currentSky);
+      const bId = currentBiome?.id || '';
+      if (bId === 'darkwood' || bId === 'maple_forest' || bId === 'redwood') {
+        this.scene.fog.density = 0.015;
+      } else {
+        this.scene.fog.density = 0.011;
+      }
+    }
+
+    // Fireflies in Forest Biomes at Night
+    const isForest = ['darkwood', 'maple_forest', 'redwood', 'forest'].includes(currentBiome?.id || '');
+    if (this.isNight() && isForest) {
+      this.fireflyMat.opacity = Math.min(0.85, this.fireflyMat.opacity + deltaTime * 1.5);
+    } else {
+      this.fireflyMat.opacity = Math.max(0, this.fireflyMat.opacity - deltaTime * 1.5);
+    }
+    this.fireflies.visible = this.fireflyMat.opacity > 0.01;
+    if (this.fireflies.visible) {
+      this.fireflies.position.set(playerPosition.x, playerPosition.y - 1.5, playerPosition.z);
+      const posAttr = this.fireflies.geometry.attributes.position;
+      const tNow = performance.now() * 0.001;
+      for (let i = 0; i < this.fireflyPointsData.length; i++) {
+        const fd = this.fireflyPointsData[i];
+        const ph = fd.phase + tNow * fd.speed;
+        const curX = posAttr.getX(i) + Math.cos(ph) * 0.04;
+        const curY = fd.baseY + Math.sin(ph * 1.5) * 0.45;
+        const curZ = posAttr.getZ(i) + Math.sin(ph) * 0.04;
+        posAttr.setXYZ(i, curX, curY, curZ);
+      }
+      posAttr.needsUpdate = true;
     }
   }
 }
+
+export const DayNightWeather = DayNightCycle;
 
 export const MOB_SPECS = Object.values(MOB_CONFIGS);
 
@@ -505,6 +611,10 @@ export class PassiveMobManager {
     this.debugGroup = new THREE.Group();
     this.scene.add(this.debugGroup);
 
+    // Part 3 & 4: Climate Behavior & Flying Bird AI Engines
+    this.birdAI = new BirdFlightAI(this.world, this.sfx);
+    this.animalClimate = new AnimalClimateBehavior(this.world);
+
     // Task F2 & User Request: Animals spawn in cohesive herds/flocks of 3 or 4!
     // NEVER spawn night_monsters during daytime or at world generation.
     const initialAnimalHerds = [
@@ -514,6 +624,7 @@ export class PassiveMobManager {
       { type: 'Chicken', x: 3.5, z: 16.5, count: 3 },
       { type: 'Rabbit', x: 14.0, z: 18.0, count: 3 },
       { type: 'Dog', x: 6.8, z: 7.4, count: 3 },
+      { type: 'Bird', x: 8.0, z: 14.0, count: 4 },
       // Wild predators also spawn in packs of 3
       { type: 'Wolf', x: 24.0, z: 21.0, count: 3 },
       { type: 'Monkey', x: -12.0, z: 22.0, count: 3 },
@@ -555,7 +666,7 @@ export class PassiveMobManager {
   }
 
   /**
-   * Section 4: GrimWraith summons Bonewalker skeletons around itself (Max 3 alive at once).
+   * Section 1.4 & Part 1: GrimWraith summons SoulSkeleton around itself (Max 3 alive at once).
    */
   summonWraithSkeletons(wraithMob, maxCap = 3) {
     if (!wraithMob.summoned) wraithMob.summoned = [];
@@ -563,7 +674,7 @@ export class PassiveMobManager {
     const needed = Math.max(0, maxCap - wraithMob.summoned.length);
     if (needed <= 0) return 0;
 
-    const skelCfg = getMobConfig('Bonewalker');
+    const skelCfg = getMobConfig('SoulSkeleton');
     let count = 0;
     for (let i = 0; i < needed; i++) {
       const a = (i / needed) * Math.PI * 2 + Math.random() * 0.5;
@@ -571,6 +682,7 @@ export class PassiveMobManager {
       const sz = wraithMob.group.position.z + Math.sin(a) * 2.4;
       const skel = this._createMob(skelCfg, this.mobs.length, sx, sz);
       skel.isSummonedSkeleton = true;
+      skel.summonedBy = wraithMob.id;
       skel.parentWraith = wraithMob;
       wraithMob.summoned.push(skel);
       this.mobs.push(skel);
@@ -678,16 +790,19 @@ export class PassiveMobManager {
     rig.group.rotation.y = initYaw;
     this.scene.add(rig.group);
 
-    // Instantiate data-driven Attack Controller (Task F1, F3 & 3-Attack Night Suite)
+    // Instantiate data-driven Attack Controller (Task F1, F3 & Part 1 Multi-Attack)
     const attackController =
-      cfg.attackType === 'ranged'
+      Array.isArray(cfg.attacks) || typeName === 'GrimWraith' || typeName === 'SoulSkeleton'
+        ? new AttackController(cfg)
+        : cfg.attackType === 'ranged'
         ? new RangedMagicAttack(cfg)
         : new MeleeAttack(cfg);
-    const nightCombat = NIGHT_MOB_ATTACKS[typeName]
-      ? new NightMobCombatController(typeName)
-      : null;
+    const nightCombat =
+      typeName !== 'GrimWraith' && NIGHT_MOB_ATTACKS[typeName]
+        ? new NightMobCombatController(typeName)
+        : null;
 
-    return {
+    const mobInstance = {
       id: `${typeName}_${Date.now()}_${Math.floor(Math.random() * 9999)}`,
       spec: { ...cfg, type: typeName },
       hitbox: cfg.hitbox,
@@ -734,6 +849,12 @@ export class PassiveMobManager {
       attackController,
       nightCombat,
     };
+
+    if (typeName === 'Bird' || cfg.behaviorClass === 'flying') {
+      this.birdAI.initBird(mobInstance, basePos.x, basePos.z, topSolidY + 0.5);
+    }
+
+    return mobInstance;
   }
 
   /**
@@ -1081,6 +1202,8 @@ export class PassiveMobManager {
       playerPosition
     );
 
+    const allBirds = this.mobs.filter((m) => m && m.isFlyingBird && m.hp > 0);
+
     for (let i = this.mobs.length - 1; i >= 0; i--) {
       const mob = this.mobs[i];
 
@@ -1107,6 +1230,12 @@ export class PassiveMobManager {
 
       if (horizDist > SPAWN_CONFIG.HARD_DESPAWN_DIST) {
         this._removeMobAtIndex(i);
+        continue;
+      }
+
+      // Part 4: Flying bird AI execution (zero-gravity 3D flight & flocking)
+      if (mob.isFlyingBird) {
+        this.birdAI.updateBird(deltaTime, mob, playerPosition, climateSystem, allBirds);
         continue;
       }
 
@@ -1158,7 +1287,66 @@ export class PassiveMobManager {
         const sdz = mob.shadeTarget.z - mob.group.position.z;
         mob.yaw = Math.atan2(sdx, sdz);
         mob.state = 'SeekShade';
+        mob.attackController?.cancel(mob);
         mob.nightCombat?.cancel(mob, this.nightProjectiles);
+      } else if (wantsToFight && mob.attackController?.selectReadyAttack) {
+        // ====================================================================
+        // Section 1.2 & 1.3: Data-Driven Multi-Attack Controller (GrimWraith, SoulSkeleton)
+        // ====================================================================
+        mob.yaw = Math.atan2(dx, dz);
+
+        mob.attackController.update(
+          deltaTime,
+          mob,
+          playerTarget,
+          this.world,
+          {
+            onPlayerDamaged: (dmg, src, opts) => {
+              if (typeof onPlayerDamaged === 'function') {
+                onPlayerDamaged(dmg, src, opts);
+              }
+            },
+            onSummon: (parentMob, maxCap) => this.summonWraithSkeletons(parentMob, maxCap),
+            nightProjectiles: this.nightProjectiles,
+            statusEffects,
+            sfx: this.sfx,
+            playerCurrentHp: playerHp,
+          }
+        );
+
+        if (
+          mob.attackPhase === 'WINDUP' ||
+          mob.attackPhase === 'STRIKE'
+        ) {
+          mob.state = 'WindupStop';
+        } else if (mob.attackPhase === 'IDLE') {
+          const nextAtk = mob.attackController.selectReadyAttack(
+            mob,
+            playerTarget,
+            this.world
+          );
+          if (nextAtk) {
+            mob.attackController.startAttack(mob, nextAtk, statusEffects, this.sfx);
+            mob.state = 'WindupStop';
+          } else {
+            // Tactical movement: GrimWraith kites back if player < 6m, else chases
+            if (mob.spec.type === 'GrimWraith') {
+              const scytheCd = mob.attackController.cooldowns.get('scythe_slash') || 0;
+              const soulCd = mob.attackController.cooldowns.get('soul_steal') || 0;
+              if (gap < 6.0 && (soulCd <= 0 || scytheCd > 0)) {
+                mob.state = 'KiteBack';
+              } else if (gap > 3.5) {
+                mob.state = 'Chase';
+              } else {
+                mob.state = 'Idle';
+              }
+            } else if (gap > (mob.spec.meleeRange ?? 1.6) - 0.2) {
+              mob.state = 'Chase';
+            } else {
+              mob.state = 'Idle';
+            }
+          }
+        }
       } else if (wantsToFight && mob.nightCombat) {
         // ====================================================================
         // Sections 3, 4, 5, 6: 3-Attack Night Mob Combat State Machine
@@ -1286,6 +1474,13 @@ export class PassiveMobManager {
       } else {
         mob.attackController?.cancel(mob);
         mob.nightCombat?.cancel(mob, this.nightProjectiles);
+
+        // Part 3: Climate-Driven Animal Behavior Engine (Shelter, Rest, Drink, Huddle)
+        const mobBiome = typeof this.world.getBiomeAt === 'function'
+          ? this.world.getBiomeAt(mob.basePos?.x || mob.group.position.x, mob.basePos?.z || mob.group.position.z)
+          : null;
+        this.animalClimate.updateMobClimateState(deltaTime, mob, climateSystem, mobBiome, this.mobs);
+
         mob.timer -= deltaTime;
         if (mob.timer <= 0) {
           mob.state = Math.random() > 0.22 ? 'Wander' : 'Idle';
@@ -1331,7 +1526,8 @@ export class PassiveMobManager {
       let moveX = 0;
       let moveZ = 0;
       const burnSpeedMult = mob.burning ? 1.2 : 1.0; // Section 7.3: +20% panic speed while burning
-      const spd = mob.spec.speed * burnSpeedMult;
+      const climateSpeedMult = mob.climateModifiers?.speedMult ?? 1.0;
+      const spd = mob.spec.speed * burnSpeedMult * climateSpeedMult;
 
       if (mob.sidestepTimer > 0) {
         // Stage 3 Unstuck Sidestep: move perpendicular to obstacle
@@ -1441,7 +1637,7 @@ export class PassiveMobManager {
       }
 
       // Part B3.1 — Shared Axis-Separated AABB Movement & Gravity / Water Buoyancy
-      moveEntityWithAABB(
+      const aabbRes = moveEntityWithAABB(
         this.world,
         mob.basePos,
         mob,
@@ -1451,6 +1647,26 @@ export class PassiveMobManager {
         halfW,
         colH
       );
+
+      // Job 2: Water extinguishes burning mob; Lava burns and damages mob
+      if (aabbRes?.inWater && mob.burning) {
+        mob.burning = false;
+        mob.bodyMat.color.copy(mob.baseColor);
+      } else if (aabbRes?.inLava) {
+        mob.burning = true;
+        mob.hp -= 8.0 * deltaTime;
+        mob.hurtTimer = 0.24;
+        mob.bodyMat.color.setHex(0xef4444);
+        if (mob.hp <= 0 && mob.deadTimer <= 0) {
+          mob.deadTimer = 0.8;
+          this.sfx?.playMobHurt?.(mob.spec.type);
+        }
+      }
+
+      // Part 3: Chicken gentle flutter fall
+      if (mob.spec.type === 'Chicken' && !mob.onGround && mob.velocityY < -0.4) {
+        mob.velocityY = Math.max(mob.velocityY, -1.8);
+      }
 
       // Part B3.3 — 2 Hz Stuck Detection & 4-Stage Recovery Ladder
       mob.stuckCheckTimer = (mob.stuckCheckTimer || 0) + deltaTime;
@@ -1553,7 +1769,50 @@ export class PassiveMobManager {
       }
 
       if (mob.arms && mob.arms.length >= 2) {
-        if (mob.attackPhase === 'WINDUP' || mob.attackPhase === 'CASTING') {
+        if (mob.spec.type === 'GrimWraith') {
+          if (mob.attackPhase === 'WINDUP') {
+            if (mob.activeAttackId === 'scythe_slash') {
+              // Scythe raised overhead for slash
+              const p = 1.6 + Math.sin(performance.now() * 0.02) * 0.15;
+              mob.arms[0].rotation.y = p;
+              mob.arms[0].rotation.x = -0.35;
+              mob.arms[1].rotation.y = 0.5;
+            } else if (mob.activeAttackId === 'summon_skeletons') {
+              // Both arms raised high for summon
+              mob.arms[0].rotation.y = 1.8;
+              mob.arms[1].rotation.y = 1.8;
+            } else if (mob.activeAttackId === 'soul_steal') {
+              // Arms channeled forward toward player
+              mob.arms[0].rotation.y = 0.95;
+              mob.arms[1].rotation.y = 0.95;
+            }
+          } else if (mob.attackPhase === 'STRIKE') {
+            if (mob.activeAttackId === 'scythe_slash') {
+              // Scythe slashed downward
+              mob.arms[0].rotation.y = -0.7;
+              mob.arms[0].rotation.x = 0.5;
+            }
+          } else {
+            const armSwing = Math.sin(mob.animPhase * 1.2) * 0.14;
+            mob.arms[0].rotation.y = 0.35 + armSwing;
+            mob.arms[1].rotation.y = 0.25 - armSwing;
+            mob.arms[0].rotation.x = 0;
+            mob.arms[1].rotation.x = 0;
+          }
+        } else if (mob.spec.type === 'SoulSkeleton') {
+          if (mob.attackPhase === 'WINDUP') {
+            // Right claw arm raised to strike
+            mob.arms[1].rotation.y = 1.5;
+            mob.arms[0].rotation.y = 0.2;
+          } else if (mob.attackPhase === 'STRIKE') {
+            // Claw swipe forward
+            mob.arms[1].rotation.y = -0.6;
+          } else {
+            const armSwing = Math.sin(mob.animPhase * 1.2) * (isMoving ? 0.48 : 0.12);
+            mob.arms[0].rotation.y = armSwing;
+            mob.arms[1].rotation.y = -armSwing;
+          }
+        } else if (mob.attackPhase === 'WINDUP' || mob.attackPhase === 'CASTING') {
           // Telegraph: raise both arms high and pulse!
           const pulse = 1.15 + Math.sin(performance.now() * 0.025) * 0.25;
           mob.arms[0].rotation.y = pulse;
@@ -1562,7 +1821,14 @@ export class PassiveMobManager {
           mob.missAnimTimer -= deltaTime;
           mob.arms[0].rotation.z = 0.85;
           mob.arms[1].rotation.z = -0.85;
-        } else if (mob.spec.type === 'Bird' || mob.spec.type === 'Chicken') {
+        } else if (mob.spec.type === 'Chicken') {
+          const isFalling = !mob.onGround && mob.velocityY < -0.4;
+          const flapSpeed = isFalling ? 12.0 : 2.4;
+          const flapAmp = isFalling ? 0.75 : isMoving ? 0.55 : 0.15;
+          const flap = Math.sin(mob.animPhase * flapSpeed) * flapAmp;
+          mob.arms[0].rotation.x = flap;
+          mob.arms[1].rotation.x = -flap;
+        } else if (mob.spec.type === 'Bird') {
           const flap = Math.sin(mob.animPhase * 2.4) * (isMoving ? 0.55 : 0.15);
           mob.arms[0].rotation.x = flap;
           mob.arms[1].rotation.x = -flap;
@@ -1693,26 +1959,44 @@ export class PassiveMobManager {
       });
       this.debugGroup.add(new THREE.Line(lineGeo, lineMat));
 
-      // 4. Part B4: Overhead Telemetry Sprite (State | Stuck | JumpCD | Grounded)
+      // 4. Overhead Telemetry Sprite (State, Current Attack, Cooldowns, Distance, Line-of-Sight)
       if (typeof document !== 'undefined') {
         const canvas = document.createElement('canvas');
-        canvas.width = 384;
-        canvas.height = 64;
+        canvas.width = 440;
+        canvas.height = 76;
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.strokeStyle = mob.stuckDuration > 0.5 ? '#f97316' : '#38bdf8';
+          ctx.strokeStyle = mob.attackPhase === 'WINDUP' ? '#f59e0b' : '#38bdf8';
           ctx.lineWidth = 3;
           ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
-          ctx.font = 'bold 20px monospace';
+          ctx.font = 'bold 18px monospace';
           ctx.fillStyle = '#f8fafc';
           ctx.textAlign = 'center';
-          const labelLine1 = `${mob.spec.type} [${mob.state}] (${mob.hp}/${mob.maxHp}HP)`;
-          const labelLine2 = `Stuck:${(mob.stuckDuration || 0).toFixed(1)}s | JumpCD:${(mob.jumpCooldown || 0).toFixed(1)}s | Gnd:${mob.onGround ? 'YES' : 'AIR'}`;
-          ctx.fillText(labelLine1, canvas.width * 0.5, 25);
-          ctx.fillStyle = mob.stuckDuration > 0.5 ? '#fde047' : '#86efac';
-          ctx.fillText(labelLine2, canvas.width * 0.5, 50);
+
+          let cdsStr = '';
+          if (mob.attackController?.cooldowns) {
+            const cds = [];
+            for (const [id, cd] of mob.attackController.cooldowns.entries()) {
+              const shortId = id.replace(/_slash|_skeletons|_steal|_scratch/, '');
+              cds.push(`${shortId}:${cd > 0 ? cd.toFixed(1) + 's' : 'RDY'}`);
+            }
+            cdsStr = cds.join(' ');
+          } else if (mob.nightCombat?.cooldowns) {
+            const cds = [];
+            for (const [id, cd] of mob.nightCombat.cooldowns.entries()) {
+              cds.push(`${id.slice(0, 6)}:${cd > 0 ? cd.toFixed(1) + 's' : 'RDY'}`);
+            }
+            cdsStr = cds.join(' ');
+          }
+
+          const labelLine1 = `${mob.spec.type} [${mob.state}] (${Math.max(0, Math.ceil(mob.hp))}/${mob.maxHp}HP) | Dist:${gap.toFixed(1)}m LOS:${hasLOS ? 'YES' : 'NO'}`;
+          const currentAtk = mob.activeAttackName || (mob.attackPhase !== 'IDLE' ? mob.attackPhase : 'IDLE');
+          const labelLine2 = `Atk:${currentAtk} | CD:[${cdsStr || 'None'}]`;
+          ctx.fillText(labelLine1, canvas.width * 0.5, 28);
+          ctx.fillStyle = mob.attackPhase === 'WINDUP' ? '#facc15' : '#38bdf8';
+          ctx.fillText(labelLine2, canvas.width * 0.5, 56);
 
           const tex = new THREE.CanvasTexture(canvas);
           const spriteMat = new THREE.SpriteMaterial({
@@ -1721,12 +2005,121 @@ export class PassiveMobManager {
             depthTest: false,
           });
           const sprite = new THREE.Sprite(spriteMat);
-          sprite.position.set(cx, aabb.maxY + 0.65, cz);
-          sprite.scale.set(2.8, 0.48, 1);
+          sprite.position.set(cx, aabb.maxY + 0.75, cz);
+          sprite.scale.set(3.2, 0.55, 1);
           this.debugGroup.add(sprite);
         }
       }
     }
+  }
+
+  /**
+   * Section 1.6: /forceattack <mob> <attackId> — Force nearest mob of that type to attack now.
+   */
+  forceMobAttack(mobType, attackId, playerPosition, world, statusEffects = null, sfx = null) {
+    const cleanType = String(mobType).toLowerCase().replace(/[\s_-]/g, '');
+    let closestMob = null;
+    let closestDist = Infinity;
+
+    for (const mob of this.mobs) {
+      if (mob.hp <= 0) continue;
+      const type = (mob.spec?.type || mob.spec?.id || '').toLowerCase().replace(/[\s_-]/g, '');
+      if (type.includes(cleanType) || cleanType.includes(type)) {
+        const dx = mob.group.position.x - playerPosition.x;
+        const dz = mob.group.position.z - playerPosition.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestMob = mob;
+        }
+      }
+    }
+
+    if (!closestMob) {
+      return { success: false, reason: `No alive mob matching '${mobType}' found nearby` };
+    }
+
+    const playerTarget = {
+      isPlayer: true,
+      position: playerPosition,
+      width: PLAYER_COMBAT_CONFIG.width,
+      height: PLAYER_COMBAT_CONFIG.height,
+      depth: PLAYER_COMBAT_CONFIG.depth,
+    };
+
+    if (closestMob.attackController?.forceAttack) {
+      const ok = closestMob.attackController.forceAttack(
+        closestMob,
+        attackId,
+        playerTarget,
+        world,
+        statusEffects,
+        sfx
+      );
+      if (ok) {
+        return { success: true, mobType: closestMob.spec.type, attackId };
+      }
+      return { success: false, reason: `Attack '${attackId}' not found on ${closestMob.spec.type}` };
+    }
+
+    if (closestMob.nightCombat) {
+      const atk = closestMob.nightCombat.attacks.find(
+        (a) => a.id.toLowerCase() === attackId.toLowerCase()
+      );
+      if (atk) {
+        closestMob.nightCombat.cooldowns.set(atk.id, 0);
+        closestMob.nightCombat.globalDelayTimer = 0;
+        closestMob.nightCombat.startWindup(closestMob, atk, statusEffects, sfx);
+        return { success: true, mobType: closestMob.spec.type, attackId };
+      }
+      return { success: false, reason: `Attack '${attackId}' not found on ${closestMob.spec.type}` };
+    }
+
+    return { success: false, reason: 'Mob does not support multi-attack controller' };
+  }
+
+  /**
+   * Part 4: Spawns a cohesive flock of flying birds that takeoff together.
+   */
+  spawnFlock(centerX, centerZ, count = 4) {
+    const spawnedList = this.spawnMobGroup('Bird', centerX, centerZ, count);
+    for (const b of spawnedList) {
+      if (b.isFlyingBird) {
+        this.birdAI.setBirdState(b, 'TakeOff');
+      }
+    }
+    return spawnedList;
+  }
+
+  /**
+   * Part 4: /birdstate <state> — Forces nearest flying bird into a specified flight state.
+   */
+  forceNearestBirdState(state, playerPosition) {
+    let nearest = null;
+    let minDist = Infinity;
+    for (const m of this.mobs) {
+      if (m.isFlyingBird && m.hp > 0) {
+        const d = Math.hypot(
+          (m.basePos?.x || m.group.position.x) - playerPosition.x,
+          (m.basePos?.z || m.group.position.z) - playerPosition.z
+        );
+        if (d < minDist) {
+          minDist = d;
+          nearest = m;
+        }
+      }
+    }
+
+    if (!nearest) {
+      return { success: false, reason: 'No alive flying bird found nearby' };
+    }
+
+    const ok = this.birdAI.setBirdState(nearest, state);
+    if (!ok) {
+      return { success: false, reason: `Invalid bird state '${state}' (valid: Perch, TakeOff, Fly, Soar, Land, Flee, Migrate)` };
+    }
+
+    return { success: true, mob: nearest, state };
   }
 }
 

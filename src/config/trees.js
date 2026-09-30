@@ -1,0 +1,200 @@
+// ============================================================================
+// Tree Dimensions, Biome Spacing & Generation Config (src/config/trees.js)
+// ============================================================================
+
+export const TREE_CONFIGS = {
+  oak: {
+    id: 'oak',
+    name: 'Oak Tree',
+    logBlock: 'wood',
+    leafBlock: 'leaves',
+    trunkWidth: 1, // 1x1 trunk
+    minHeight: 5,
+    maxHeight: 9,
+    canopyShape: 'round', // round sphere/oval
+    canopyRadius: 2.5,
+    canopyStartHeightRatio: 0.5,
+    hasSideBranches: true,
+  },
+  dark_oak: {
+    id: 'dark_oak',
+    name: 'Dark Oak Tree',
+    logBlock: 'log_darkoak',
+    leafBlock: 'leaves_darkoak',
+    trunkWidth: 2, // 2x2 trunk
+    minHeight: 7,
+    maxHeight: 11,
+    canopyShape: 'flat_wide', // wide and flat, 3 layers, radius 4..5
+    canopyRadius: 4.5,
+    canopyStartHeightRatio: 0.6,
+    hasSideBranches: true,
+    blocksLight: true,
+  },
+  maple: {
+    id: 'maple',
+    name: 'Maple Tree',
+    logBlock: 'log_maple',
+    leafBlocks: ['leaves_maple_red', 'leaves_maple_orange', 'leaves_maple_yellow'],
+    leafColors: ['leaves_maple_red', 'leaves_maple_orange', 'leaves_maple_yellow'],
+    isDeciduous: true,
+    trunkWidth: 1, // 1x1 trunk
+    minHeight: 6,
+    maxHeight: 9,
+    canopyShape: 'oval', // oval, radius 3..4
+    canopyRadius: 3.5,
+    canopyStartHeightRatio: 0.45,
+    hasLowBranches: true,
+  },
+  redwood: {
+    id: 'redwood',
+    name: 'Giant Redwood Tree',
+    logBlock: 'log_redwood',
+    leafBlock: 'leaves_redwood',
+    trunkWidth: 2, // 2x2 base, 1x1 above
+    minHeight: 24,
+    maxHeight: 40,
+    canopyShape: 'cone', // cone starts at 40% height, shrinks to top
+    canopyRadius: 4.5,
+    canopyStartHeightRatio: 0.4,
+    flaredBase: true,
+  },
+  birch: {
+    id: 'birch',
+    name: 'Birch Tree',
+    logBlock: 'birch_wood',
+    leafBlock: 'birch_leaves',
+    trunkWidth: 1,
+    minHeight: 5,
+    maxHeight: 8,
+    canopyShape: 'oval',
+    canopyRadius: 2.2,
+    canopyStartHeightRatio: 0.55,
+  },
+  pine: {
+    id: 'pine',
+    name: 'Pine Tree',
+    logBlock: 'pine_log',
+    leafBlock: 'pine_leaves',
+    trunkWidth: 1,
+    minHeight: 6,
+    maxHeight: 10,
+    canopyShape: 'cone',
+    canopyRadius: 2.8,
+    canopyStartHeightRatio: 0.4,
+  },
+  cactus: {
+    id: 'cactus',
+    name: 'Cactus',
+    logBlock: 'cactus',
+    leafBlock: null,
+    trunkWidth: 1,
+    minHeight: 2,
+    maxHeight: 4,
+    canopyShape: 'column',
+    canopyRadius: 0,
+  },
+};
+
+export const BIOME_TREE_SPACING = {
+  darkwood: {
+    treeType: 'dark_oak',
+    cellSize: 9, // Dense canopy
+    treeChance: 0.85,
+    stumpChance: 0.08,
+    fallenLogChance: 0.12,
+    mossyRockChance: 0.05,
+    maxCanopyRadius: 5,
+  },
+  maple_forest: {
+    treeType: 'maple',
+    cellSize: 8,
+    treeChance: 0.78,
+    stumpChance: 0.05,
+    fallenLogChance: 0.08,
+    mossyRockChance: 0.03,
+    maxCanopyRadius: 4,
+  },
+  redwood: {
+    treeType: 'redwood',
+    cellSize: 12, // Giant redwoods spaced out
+    treeChance: 0.72,
+    stumpChance: 0.06,
+    fallenLogChance: 0.14,
+    mossyRockChance: 0.04,
+    maxCanopyRadius: 5,
+  },
+  forest: {
+    treeType: 'oak',
+    cellSize: 7,
+    treeChance: 0.65,
+    stumpChance: 0.04,
+    fallenLogChance: 0.05,
+    mossyRockChance: 0.02,
+    maxCanopyRadius: 3,
+  },
+  birch_forest: {
+    treeType: 'birch',
+    cellSize: 7,
+    treeChance: 0.68,
+    stumpChance: 0.04,
+    fallenLogChance: 0.04,
+    mossyRockChance: 0.02,
+    maxCanopyRadius: 3,
+  },
+  taiga: {
+    treeType: 'pine',
+    cellSize: 7,
+    treeChance: 0.65,
+    stumpChance: 0.05,
+    fallenLogChance: 0.06,
+    mossyRockChance: 0.03,
+    maxCanopyRadius: 3,
+  },
+  mountains: {
+    treeType: 'pine',
+    cellSize: 14,
+    treeChance: 0.28,
+    stumpChance: 0.02,
+    fallenLogChance: 0.02,
+    mossyRockChance: 0.06,
+    maxCanopyRadius: 3,
+  },
+  plains: {
+    treeType: 'oak',
+    cellSize: 16,
+    treeChance: 0.35,
+    stumpChance: 0.01,
+    fallenLogChance: 0.01,
+    mossyRockChance: 0.01,
+    maxCanopyRadius: 3,
+  },
+  savanna: {
+    treeType: 'oak',
+    cellSize: 14,
+    treeChance: 0.42,
+    stumpChance: 0.01,
+    fallenLogChance: 0.01,
+    mossyRockChance: 0.01,
+    maxCanopyRadius: 3,
+  },
+  swamp: {
+    treeType: 'oak',
+    cellSize: 8,
+    treeChance: 0.55,
+    stumpChance: 0.07,
+    fallenLogChance: 0.08,
+    mossyRockChance: 0.05,
+    maxCanopyRadius: 3,
+  },
+  desert: {
+    treeType: 'cactus',
+    cellSize: 12,
+    treeChance: 0.38,
+    stumpChance: 0,
+    fallenLogChance: 0,
+    mossyRockChance: 0,
+    maxCanopyRadius: 0,
+  },
+};
+
+export const TREE_SPECIES = TREE_CONFIGS;

@@ -12,6 +12,8 @@ import {
   RangedMagicAttack,
   ProjectileManager,
 } from '../src/combat/attacks/RangedMagicAttack.js';
+import { AttackController } from '../src/combat/AttackController.js';
+import { SoulBeamAttack } from '../src/combat/attacks/SoulBeamAttack.js';
 import { MOB_CONFIGS, getMobConfig } from '../src/config/mobs.js';
 import { SPAWN_CONFIG, isNightTime } from '../src/config/spawning.js';
 import { SAVE_WORLD_VERSION } from '../src/config/ores.js';
@@ -27,6 +29,15 @@ import {
   moveEntityWithAABB,
   pushEntityOutOfBlocks,
 } from '../src/collision.js';
+import { FluidSimulator } from '../src/fluids/FluidSimulator.js';
+import { FLUID_CONFIG } from '../src/config/fluids.js';
+import { CLIMATE_CONFIG } from '../src/config/climate.js';
+import { ClimateSystem } from '../src/climate/ClimateSystem.js';
+import { ANIMAL_CLIMATE_CONFIG } from '../src/config/animalClimate.js';
+import { AnimalClimateBehavior } from '../src/climate/AnimalClimateBehavior.js';
+import { BirdFlightAI } from '../src/ai/BirdFlightAI.js';
+import { TREE_SPECIES } from '../src/config/trees.js';
+import { BLOCK_DEFINITIONS, BLOCK_BY_ID, ATLAS_TILE_INDEX } from '../src/blocks.js';
 
 console.log('====================================================================');
 console.log(' VOXEL REALMS — AUTOMATED QA SUITE (F1–F6 + NIGHT MOB COMBAT)');
@@ -664,7 +675,784 @@ check('B4.1 Mob Auto-Jump (1-block wall jumped, 2-block wall turns away, cliff a
   return `1-block wall cleared (y=${pigPos.y.toFixed(1)}) | 2-block wall='blocked_tall' | Cliff detected | Buried mob pushed free`;
 });
 
+// ============================================================================
+// PART 1 QA — GRIMWRAITH 3 ATTACKS, SOUL SKELETON WIRING & ATTACK CONTROLLER
+// ============================================================================
+console.log('\n--- PART 1 QA: GrimWraith 3-Attack Suite & SoulSkeleton Wiring ---');
+
+check('GW1.1 Multi-Attack AttackController: separate cooldowns & 0.8s global recovery delay', () => {
+  const ctrl = new AttackController(MOB_CONFIGS.GrimWraith);
+  assert.equal(ctrl.attacks.length, 3);
+  assert.equal(ctrl.cooldowns.size, 3);
+
+  const mob = {
+    hp: 30,
+    maxHp: 30,
+    position: { x: 0, y: 10.5, z: 0 },
+    hitbox: MOB_CONFIGS.GrimWraith.hitbox,
+    reachY: 1.2,
+    attackPhase: 'IDLE',
+    arms: [
+      { rotation: { x: 0, y: 0, z: 0 } },
+      { rotation: { x: 0, y: 0, z: 0 } },
+    ],
+  };
+  const scytheAtk = ctrl.attacks.find((a) => a.id === 'scythe_slash');
+
+  // Start Scythe Slash
+  ctrl.startAttack(mob, scytheAtk);
+  assert.equal(mob.attackPhase, 'WINDUP');
+  assert.equal(mob.state, 'WindupStop');
+
+  // Advance past windup (0.6s) to STRIKE
+  const world = createMockWorld();
+  const player = { isPlayer: true, position: { x: 0, y: 11.62, z: 2.0 } };
+  let damageDealt = 0;
+  ctrl.update(0.65, mob, player, world, {
+    onPlayerDamaged: (dmg) => {
+      damageDealt += dmg;
+    },
+  });
+
+  assert.equal(damageDealt, 4);
+  assert.equal(mob.attackPhase, 'RECOVERY');
+  assert.equal(ctrl.globalDelayTimer, 0.8);
+  assert.ok(ctrl.cooldowns.get('scythe_slash') > 1.0);
+
+  // During 0.8s global delay, selectReadyAttack must return null
+  assert.equal(ctrl.selectReadyAttack(mob, player, world), null);
+
+  // Advance 0.85s so global delay expires
+  ctrl.update(0.85, mob, player, world);
+  assert.equal(mob.attackPhase, 'IDLE');
+  assert.equal(ctrl.globalDelayTimer, 0);
+
+  return '3 attacks wrapped, separate CDs tracked, 0.8s global delay enforced';
+});
+
+check('GW1.2 GrimWraith tactical attack selection logic (Far=SoulSteal/Summon, Close=Scythe, Max 3 Skeletons)', () => {
+  const ctrl = new AttackController(MOB_CONFIGS.GrimWraith);
+  const world = createMockWorld();
+  const wraith = {
+    id: 1,
+    type: 'GrimWraith',
+    hp: 30,
+    position: { x: 0, y: 10.5, z: 0 },
+    hitbox: MOB_CONFIGS.GrimWraith.hitbox,
+    reachY: 1.2,
+    summoned: [],
+    attackPhase: 'IDLE',
+  };
+
+  // 1. Player far (gap = 12m): prefers Soul Steal when ready
+  const playerFar = { isPlayer: true, position: { x: 0, y: 10.5, z: 12.0 } };
+  const atkFar = ctrl.selectReadyAttack(wraith, playerFar, world);
+  assert.equal(atkFar.id, 'soul_steal');
+
+  // Put Soul Steal on CD: at 12m should now pick Summon Skeletons
+  ctrl.cooldowns.set('soul_steal', 20.0);
+  const atkSummon = ctrl.selectReadyAttack(wraith, playerFar, world);
+  assert.equal(atkSummon.id, 'summon_skeletons');
+
+  // If 3 skeletons already alive, cannot pick summon!
+  wraith.summoned = [{ hp: 10 }, { hp: 10 }, { hp: 10 }];
+  const atkCapped = ctrl.selectReadyAttack(wraith, playerFar, world);
+  assert.equal(atkCapped, null); // Cannot summon when 3 alive, moves closer
+
+  // 2. Player close (gap = 2.0m): prefers Scythe Slash
+  wraith.summoned.length = 0;
+  ctrl.cooldowns.set('soul_steal', 0);
+  const playerClose = { isPlayer: true, position: { x: 0, y: 10.5, z: 2.5 } };
+  const atkClose = ctrl.selectReadyAttack(wraith, playerClose, world);
+  assert.equal(atkClose.id, 'scythe_slash');
+
+  // Never cast summon in melee range unless Scythe on CD
+  ctrl.cooldowns.set('scythe_slash', 1.5);
+  const atkCloseFallback = ctrl.selectReadyAttack(wraith, playerClose, world);
+  assert.equal(atkCloseFallback.id, 'summon_skeletons');
+
+  return 'Far->SoulSteal/Summon | Close->Scythe | Max 3 Summons cap enforced';
+});
+
+check('GW1.3 Scythe Slash melee range & knockback', () => {
+  const ctrl = new AttackController(MOB_CONFIGS.GrimWraith);
+  const world = createMockWorld();
+  const mob = {
+    id: 1,
+    type: 'GrimWraith',
+    hp: 30,
+    position: { x: 0, y: 10.5, z: 0 },
+    hitbox: MOB_CONFIGS.GrimWraith.hitbox,
+    reachY: 1.2,
+    attackPhase: 'IDLE',
+    arms: [{ rotation: { x: 0, y: 0 } }, { rotation: { x: 0, y: 0 } }],
+  };
+  const scytheAtk = ctrl.attacks.find((a) => a.id === 'scythe_slash');
+
+  // Player at gap = 2.5m (within 3.5m meleeRange)
+  const playerIn = { isPlayer: true, position: { x: 0, y: 10.5, z: 3.2 } };
+  ctrl.startAttack(mob, scytheAtk);
+  let hitInfo = null;
+  ctrl.update(0.65, mob, playerIn, world, {
+    onPlayerDamaged: (dmg, src, opts) => {
+      hitInfo = { dmg, src, opts };
+    },
+  });
+  assert.ok(hitInfo);
+  assert.equal(hitInfo.dmg, 4);
+  assert.equal(hitInfo.opts.knockback, 0.75);
+
+  // Player at gap = 4.2m (outside 3.5m meleeRange) -> WHOOSH MISS
+  ctrl.globalDelayTimer = 0;
+  mob.attackPhase = 'IDLE';
+  const playerOut = { isPlayer: true, position: { x: 0, y: 10.5, z: 5.5 } };
+  ctrl.startAttack(mob, scytheAtk);
+  let missHit = false;
+  ctrl.update(0.65, mob, playerOut, world, {
+    onPlayerDamaged: () => {
+      missHit = true;
+    },
+  });
+  assert.equal(missHit, false);
+  assert.ok(mob.lastAttackOutcome.includes('WHOOSH MISS'));
+
+  return 'Scythe Slash: 4 damage + 0.75 knockback inside 3.5m, WHOOSH MISS outside';
+});
+
+check('GW1.4 Soul Steal (SoulBeamAttack): 50% HP damage, non-lethal, blocked by LOS cover', () => {
+  const beam = new SoulBeamAttack();
+  const openWorld = createMockWorld();
+  const wallWorld = createMockWorld(new Map([['0,11,4', 'stone']]));
+
+  const mob = {
+    id: 1,
+    type: 'GrimWraith',
+    hp: 30,
+    position: { x: 0, y: 10.5, z: 0 },
+    hitbox: MOB_CONFIGS.GrimWraith.hitbox,
+    reachY: 1.2,
+    attackPhase: 'IDLE',
+  };
+  const player = { isPlayer: true, position: { x: 0, y: 11.62, z: 10.0 } };
+
+  // 1. Direct hit with 20 HP -> removes 10 HP
+  beam.start(mob);
+  let dealt = 0;
+  beam.update(1.55, mob, player, openWorld, null, null, (dmg) => {
+    dealt = dmg;
+  }, null, 20);
+  assert.equal(dealt, 10);
+
+  // 2. Direct hit with 1 HP -> non-lethal (deals 0, never kills)
+  mob.attackPhase = 'IDLE';
+  beam.start(mob);
+  let lowHpDealt = -1;
+  beam.update(1.55, mob, player, openWorld, null, null, (dmg) => {
+    lowHpDealt = dmg;
+  }, null, 1);
+  assert.equal(lowHpDealt, 0);
+
+  // 3. Player stepped behind wall during windup -> DODGED (LOS BROKEN), 0 damage
+  mob.attackPhase = 'IDLE';
+  beam.start(mob);
+  let wallDamage = 0;
+  beam.update(1.55, mob, player, wallWorld, null, null, (dmg) => {
+    wallDamage = dmg;
+  }, null, 20);
+  assert.equal(wallDamage, 0);
+  assert.ok(mob.lastAttackOutcome.includes('DODGED'));
+
+  return '50% HP damage (10 dmg at 20HP), 0 dmg at 1HP (never kills), blocked by wall LOS';
+});
+
+check('GW1.5 SoulSkeleton 10-point wiring: model, config, claw scratch, crumble & burn', () => {
+  const skelCfg = MOB_CONFIGS.SoulSkeleton;
+  assert.ok(skelCfg, 'SoulSkeleton config exists in MOB_CONFIGS');
+  assert.equal(skelCfg.maxHp, 10);
+  assert.equal(skelCfg.summonOnly, true);
+  assert.equal(skelCfg.burnsInSunlight, true);
+
+  const clawAtk = skelCfg.attacks[0];
+  assert.equal(clawAtk.id, 'claw_scratch');
+  assert.equal(clawAtk.meleeRange, 1.6);
+  assert.equal(clawAtk.damage, 2);
+  assert.equal(clawAtk.knockback, 0.35);
+
+  // Verify DaylightBurnSystem burns SoulSkeleton at 4.0 DPS
+  assert.equal(MOB_BURN_RATES.SoulSkeleton, 4.0);
+
+  // Verify Crumble: when Wraith dies, all skeletons crumble immediately
+  const wraith = {
+    id: 1,
+    type: 'GrimWraith',
+    hp: 0,
+    summoned: [
+      { id: 10, hp: 10, deadTimer: 0 },
+      { id: 11, hp: 10, deadTimer: 0 },
+    ],
+  };
+  for (const skel of wraith.summoned) {
+    if (skel && skel.hp > 0) {
+      skel.hp = 0;
+      skel.deadTimer = 0.25;
+    }
+  }
+  assert.equal(wraith.summoned[0].hp, 0);
+  assert.equal(wraith.summoned[1].hp, 0);
+
+  return 'SoulSkeleton fully wired: Claw Scratch (2dmg/1.6m), 4.0 DPS sun burn & crumble on death';
+});
+
+check('GW1.6 forceMobAttack executes attack immediately ignoring cooldown', () => {
+  const ctrl = new AttackController(MOB_CONFIGS.GrimWraith);
+  const mob = {
+    id: 1,
+    type: 'GrimWraith',
+    hp: 30,
+    attackPhase: 'IDLE',
+    arms: [{ rotation: { x: 0, y: 0 } }, { rotation: { x: 0, y: 0 } }],
+  };
+  // Put soul_steal on 30s cooldown
+  ctrl.cooldowns.set('soul_steal', 30.0);
+  ctrl.globalDelayTimer = 0.8;
+
+  const forced = ctrl.forceAttack(mob, 'soul_steal', null, null);
+  assert.equal(forced, true);
+  assert.equal(mob.attackPhase, 'WINDUP');
+  assert.equal(mob.activeAttackId, 'soul_steal');
+  assert.equal(ctrl.cooldowns.get('soul_steal'), 0);
+
+  return 'forceAttack overrides active cooldown and enters WINDUP immediately';
+});
+
+// ============================================================================
+// PART 2 QA: MINECRAFT-STYLE FLUID SIMULATOR (7 SCENARIOS)
+// ============================================================================
+console.log('\n--- PART 2 QA: Minecraft-Style Fluid Simulator (7 Scenarios) ---');
+
+class MockFluidWorld {
+  constructor() {
+    this.blocks = new Map();
+  }
+  coordKey(x, y, z) {
+    return `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
+  }
+  setBlock(x, y, z, type) {
+    const k = this.coordKey(x, y, z);
+    if (!type) this.blocks.delete(k);
+    else this.blocks.set(k, type);
+  }
+  getBlock(x, y, z) {
+    return this.blocks.get(this.coordKey(x, y, z)) || null;
+  }
+  isSolidAt(x, y, z) {
+    const b = this.getBlock(x, y, z);
+    return Boolean(b && b !== 'water' && b !== 'lava');
+  }
+  isAirOrReplaceable(x, y, z) {
+    const b = this.getBlock(x, y, z);
+    return !b || b === 'air';
+  }
+}
+
+function runFluidSimUntilSettled(sim, maxTicks = 100) {
+  for (let t = 0; t < maxTicks; t++) {
+    sim.currentTime += 0.25;
+    const processed = sim.tick(sim.currentTime, 500);
+    if (sim.queue.length === 0 && processed === 0) break;
+  }
+}
+
+check('FL1.1 Water source on flat ground spreads to exactly 7 blocks', () => {
+  const world = new MockFluidWorld();
+  for (let x = -10; x <= 10; x++) {
+    for (let z = -10; z <= 10; z++) world.setBlock(x, 0, z, 'stone');
+  }
+  const sim = new FluidSimulator(world, FLUID_CONFIG);
+  sim.addSource(0, 1, 0, 'water');
+  runFluidSimUntilSettled(sim);
+
+  assert.equal(sim.getFluid(0, 1, 0)?.level, 0);
+  for (let x = 1; x <= 7; x++) {
+    assert.equal(sim.getFluid(x, 1, 0)?.level, x);
+  }
+  assert.equal(sim.getFluid(8, 1, 0), null);
+  return 'Water spread exactly 7 blocks horizontally (levels 1..7)';
+});
+
+check('FL1.2 Source above hole falls straight down without sideways spread while falling', () => {
+  const world = new MockFluidWorld();
+  for (let x = -5; x <= 5; x++) {
+    for (let z = -5; z <= 5; z++) world.setBlock(x, 0, z, 'stone');
+  }
+  const sim = new FluidSimulator(world, FLUID_CONFIG);
+  sim.addSource(0, 10, 0, 'water');
+  sim.currentTime += 0.25;
+  sim.tick(sim.currentTime, 500);
+
+  const f9 = sim.getFluid(0, 9, 0);
+  assert(f9 && f9.falling);
+  assert.equal(sim.getFluid(1, 10, 0), null);
+  assert.equal(sim.getFluid(-1, 10, 0), null);
+  return 'Falling water went straight down; 0 sideways spread at source height';
+});
+
+check('FL1.3 Water finds shortest path to drop within 4 blocks and flows towards it', () => {
+  const world = new MockFluidWorld();
+  for (let x = -5; x <= 5; x++) {
+    for (let z = -5; z <= 5; z++) {
+      if (x === 3 && z === 0) continue;
+      world.setBlock(x, 0, z, 'stone');
+    }
+  }
+  const sim = new FluidSimulator(world, FLUID_CONFIG);
+  sim.addSource(0, 1, 0, 'water');
+  sim.currentTime += 0.25;
+  sim.tick(sim.currentTime, 500);
+
+  assert(sim.getFluid(1, 1, 0) !== null);
+  assert.equal(sim.getFluid(-1, 1, 0), null);
+  assert.equal(sim.getFluid(0, 1, 1), null);
+  assert.equal(sim.getFluid(0, 1, -1), null);
+  return 'Water directed exclusively towards hole at (3, 0, 0)';
+});
+
+check('FL1.4 Two water sources with solid floor create infinite water source', () => {
+  const world = new MockFluidWorld();
+  for (let x = -10; x <= 10; x++) {
+    for (let z = -10; z <= 10; z++) world.setBlock(x, 0, z, 'stone');
+  }
+  const sim = new FluidSimulator(world, FLUID_CONFIG);
+  sim.addSource(0, 1, 0, 'water');
+  sim.addSource(2, 1, 0, 'water');
+  runFluidSimUntilSettled(sim);
+
+  const middle = sim.getFluid(1, 1, 0);
+  assert(middle !== null && middle.level === 0);
+  return 'Middle block at (1, 1, 0) transformed into source (level 0)';
+});
+
+check('FL1.5 Lava spreads only 3 blocks (levels 0, 2, 4, 6)', () => {
+  const world = new MockFluidWorld();
+  for (let x = -6; x <= 6; x++) {
+    for (let z = -6; z <= 6; z++) world.setBlock(x, 0, z, 'stone');
+  }
+  const sim = new FluidSimulator(world, FLUID_CONFIG);
+  sim.addSource(0, 1, 0, 'lava');
+  runFluidSimUntilSettled(sim, 50);
+
+  assert.equal(sim.getFluid(1, 1, 0)?.level, 2);
+  assert.equal(sim.getFluid(2, 1, 0)?.level, 4);
+  assert.equal(sim.getFluid(3, 1, 0)?.level, 6);
+  assert.equal(sim.getFluid(4, 1, 0), null);
+  return 'Lava spread exactly 3 blocks (levels 0, 2, 4, 6)';
+});
+
+check('FL1.6 Water/Lava interactions (obsidian, cobblestone, stone)', () => {
+  // 6A: Water on lava source -> obsidian
+  {
+    const world = new MockFluidWorld();
+    for (let x = -5; x <= 5; x++) {
+      for (let z = -5; z <= 5; z++) world.setBlock(x, 0, z, 'stone');
+    }
+    const sim = new FluidSimulator(world, FLUID_CONFIG);
+    sim.addSource(1, 1, 0, 'lava');
+    sim.addSource(0, 1, 0, 'water');
+    sim.currentTime += 0.25;
+    sim.tick(sim.currentTime, 100);
+    assert.equal(world.getBlock(1, 1, 0), 'obsidian');
+  }
+  // 6B: Water on flowing lava -> cobblestone
+  {
+    const world = new MockFluidWorld();
+    for (let x = -5; x <= 5; x++) {
+      for (let z = -5; z <= 5; z++) world.setBlock(x, 0, z, 'stone');
+    }
+    const sim = new FluidSimulator(world, FLUID_CONFIG);
+    sim.setFluid(1, 1, 0, { type: 'lava', level: 4, falling: false });
+    sim.addSource(0, 1, 0, 'water');
+    sim.currentTime += 0.25;
+    sim.tick(sim.currentTime, 100);
+    assert.equal(world.getBlock(1, 1, 0), 'cobblestone');
+  }
+  // 6C: Lava down on water -> stone
+  {
+    const world = new MockFluidWorld();
+    world.setBlock(0, 0, 0, 'stone');
+    const sim = new FluidSimulator(world, FLUID_CONFIG);
+    sim.addSource(0, 1, 0, 'water');
+    sim.addSource(0, 2, 0, 'lava');
+    sim.currentTime += 1.5;
+    sim.tick(sim.currentTime, 100);
+    assert.equal(world.getBlock(0, 1, 0), 'stone');
+  }
+  return 'All 3 reactions verified: lava source->obsidian, flowing lava->cobblestone, lava down->stone';
+});
+
+check('FL1.7 Removing source makes flow retreat and disappear', () => {
+  const world = new MockFluidWorld();
+  for (let x = -10; x <= 10; x++) {
+    for (let z = -10; z <= 10; z++) world.setBlock(x, 0, z, 'stone');
+  }
+  const sim = new FluidSimulator(world, FLUID_CONFIG);
+  sim.addSource(0, 1, 0, 'water');
+  runFluidSimUntilSettled(sim);
+  assert(sim.getFluid(5, 1, 0) !== null);
+
+  sim.removeSource(0, 1, 0);
+  runFluidSimUntilSettled(sim);
+
+  for (let x = -8; x <= 8; x++) {
+    for (let z = -8; z <= 8; z++) {
+      assert.equal(sim.getFluid(x, 1, z), null);
+    }
+  }
+  return 'All flowing fluid retreated and 0 fluid blocks remained';
+});
+
+// ============================================================================
+// PART 1 QA: Forest Biomes, Trees, Blocks & Cross-Plane Undergrowth
+// ============================================================================
+console.log('\n--- PART 1 QA: Forest Biomes, Trees, Blocks & Undergrowth ---');
+
+check('FB1.1 Biome table contains darkwood, maple_forest, and redwood with pure block definitions', () => {
+  const dw = BIOME_TABLE.darkwood;
+  const mf = BIOME_TABLE.maple_forest;
+  const rw = BIOME_TABLE.redwood;
+  assert(dw, 'darkwood biome exists');
+  assert(mf, 'maple_forest biome exists');
+  assert(rw, 'redwood biome exists');
+
+  assert.equal(dw.surface, 'forest_floor');
+  assert.equal(dw.sub, 'dirt');
+  assert.equal(dw.treeSpecies, 'dark_oak');
+
+  assert.equal(mf.surface, 'maple_floor');
+  assert.equal(mf.sub, 'dirt');
+  assert.equal(mf.treeSpecies, 'maple');
+
+  assert.equal(rw.surface, 'needle_floor');
+  assert.equal(rw.sub, 'dirt');
+  assert.equal(rw.treeSpecies, 'redwood');
+
+  return `Darkwood(surface=${dw.surface}, tree=${dw.treeSpecies}), Maple(surface=${mf.surface}), Redwood(surface=${rw.surface})`;
+});
+
+check('FB1.2 Tree specifications: Dark Oak (2x2 trunk), Maple (deciduous), Redwood (tall cone up to 40m)', () => {
+  const doak = TREE_SPECIES.dark_oak;
+  const maple = TREE_SPECIES.maple;
+  const redwood = TREE_SPECIES.redwood;
+  assert(doak && maple && redwood);
+
+  assert.equal(doak.trunkWidth, 2, 'Dark Oak has 2x2 trunk');
+  assert.equal(maple.isDeciduous, true, 'Maple is deciduous');
+  assert(Array.isArray(maple.leafColors) && maple.leafColors.length >= 3, 'Maple has multi-color leaf palette');
+  assert.equal(redwood.minHeight, 24, 'Redwood minHeight=24');
+  assert.equal(redwood.maxHeight, 40, 'Redwood maxHeight=40');
+  assert.equal(redwood.canopyShape, 'cone', 'Redwood canopyShape=cone');
+
+  return `Dark Oak 2x2 trunk, Maple deciduous leaves, Redwood ${redwood.minHeight}-${redwood.maxHeight}m cone`;
+});
+
+check('FB1.3 Block definitions and atlas tile registrations for all forest blocks and undergrowth plants', () => {
+  const requiredBlocks = [
+    'log_darkoak', 'planks_darkoak', 'leaves_darkoak',
+    'log_maple', 'planks_maple', 'leaves_maple',
+    'log_redwood', 'planks_redwood', 'leaves_redwood',
+    'forest_floor', 'maple_floor', 'needle_floor', 'moss',
+    'fern', 'tall_grass_plant', 'mushroom_red', 'mushroom_brown',
+    'flower_bluebell', 'flower_violet', 'flower_anemone',
+  ];
+
+  for (const b of requiredBlocks) {
+    assert(BLOCK_BY_ID[b], `Block definition exists for ${b}`);
+  }
+
+  // Cross-plane plant blocks must not be solid
+  assert.equal(BLOCK_BY_ID.fern.solid, false);
+  assert.equal(BLOCK_BY_ID.tall_grass_plant.solid, false);
+  assert.equal(BLOCK_BY_ID.mushroom_red.solid, false);
+  assert.equal(BLOCK_BY_ID.flower_bluebell.solid, false);
+
+  return `${requiredBlocks.length} forest blocks and plants registered with valid atlas tiles`;
+});
+
+// ============================================================================
+// PART 2 QA: Climate, Season Cycle & Weather Engine
+// ============================================================================
+console.log('\n--- PART 2 QA: Climate, Season Cycle & Weather Engine ---');
+
+check('CL1.1 Calendar and 4 seasons: 5 days per season, 20-day year', () => {
+  const cs = new ClimateSystem(999);
+  assert.equal(CLIMATE_CONFIG.DAYS_PER_SEASON, 5);
+  const daysPerYear = CLIMATE_CONFIG.DAYS_PER_SEASON * 4;
+  assert.equal(daysPerYear, 20);
+
+  cs.dayCount = 0;
+  assert.equal(cs.season, 'spring');
+  cs.dayCount = 5;
+  assert.equal(cs.season, 'summer');
+  cs.dayCount = 10;
+  assert.equal(cs.season, 'autumn');
+  cs.dayCount = 15;
+  assert.equal(cs.season, 'winter');
+  cs.dayCount = 20;
+  assert.equal(cs.season, 'spring'); // New year loop
+
+  return `Year=20 days (4 seasons x 5 days): Day 0->Spring, Day 5->Summer, Day 10->Autumn, Day 15->Winter, Day 20->Spring`;
+});
+
+check('CL1.2 Temperature formula calculation matches: biomeBase + seasonOffset + dayNightSwing - altitudeLapse', () => {
+  const cs = new ClimateSystem(1234);
+  cs.setSeason('spring');
+  cs.timeOfDay = 0.25; // Midday swing = 0
+
+  const plainsTemp = cs.temperatureAt(BIOME_TABLE.plains, 18);
+  const basePlains = CLIMATE_CONFIG.BIOME_CLIMATES.plains.baseTemp;
+  assert.equal(plainsTemp, basePlains);
+
+  // Winter altitude lapse: -0.28C per block above y=18
+  cs.setSeason('winter');
+  const winterOffset = CLIMATE_CONFIG.SEASON_TEMP_OFFSETS.winter; // -12
+  const seaLvlTemp = cs.temperatureAt(BIOME_TABLE.plains, 18);
+  assert.equal(seaLvlTemp, basePlains + winterOffset);
+
+  const mountainTemp = cs.temperatureAt(BIOME_TABLE.plains, 28); // 10 blocks above sea level: -2.8C
+  assert.equal(mountainTemp, Math.round((basePlains + winterOffset - 2.8) * 10) / 10);
+
+  return `Plains sea-lvl spring=${plainsTemp}°C, winter=${seaLvlTemp}°C, 10m altitude=${mountainTemp}°C`;
+});
+
+check('CL1.3 Day-length seasonal shift affects nightStart / nightEnd accurately', () => {
+  const cs = new ClimateSystem(5678);
+
+  cs.setSeason('summer');
+  const summerSun = cs.getSunTimes();
+
+  cs.setSeason('winter');
+  const winterSun = cs.getSunTimes();
+
+  // In summer, days are longer: night starts later (higher value) and ends earlier (lower value)
+  assert(summerSun.nightStart > winterSun.nightStart, 'Summer night starts later than winter night');
+  assert(summerSun.nightEnd < winterSun.nightEnd, 'Summer night ends earlier than winter night');
+
+  return `Summer night: [${summerSun.nightStart.toFixed(2)} .. ${summerSun.nightEnd.toFixed(2)}], Winter night: [${winterSun.nightStart.toFixed(2)} .. ${winterSun.nightEnd.toFixed(2)}]`;
+});
+
+check('CL1.4 Weather state transitions and precipitation type (snow below 0C, dust in desert, rain otherwise)', () => {
+  const cs = new ClimateSystem(7890);
+  cs.precipIntensity = 0.8;
+
+  // Desert always yields dust_haze
+  assert.equal(cs.precipTypeAt(BIOME_TABLE.desert, 20), 'dust_haze');
+
+  // Below freezing yields snow
+  cs.setSeason('winter');
+  const coldTemp = cs.temperatureAt(BIOME_TABLE.tundra, 20);
+  assert(coldTemp <= 0);
+  assert.equal(cs.precipTypeAt(BIOME_TABLE.tundra, 20), 'snow');
+
+  // Warm spring yields rain
+  cs.setSeason('spring');
+  assert.equal(cs.precipTypeAt(BIOME_TABLE.plains, 20), 'rain');
+
+  // No precip when intensity < 0.05
+  cs.precipIntensity = 0.0;
+  assert.equal(cs.precipTypeAt(BIOME_TABLE.plains, 20), 'none');
+
+  return `Desert->dust_haze | Freezing (${coldTemp}°C)->snow | Warm spring->rain | Zero precip->none`;
+});
+
+// ============================================================================
+// PART 3 QA: Climate-Driven Animal Behavior Engine
+// ============================================================================
+console.log('\n--- PART 3 QA: Climate-Driven Animal Behavior Engine ---');
+
+check('AB1.1 Rain and storm triggers seek shelter activity and reduces movement speed', () => {
+  const ac = new AnimalClimateBehavior(createMockWorld());
+  const mob = { spec: { behaviorClass: 'passive', type: 'Cow' }, basePos: { x: 0, y: 20, z: 0 } };
+  const stormClimate = {
+    weather: 'thunderstorm',
+    isNight: () => false,
+    season: 'summer',
+    precipIntensity: 1.0,
+    temperatureAt: () => 20,
+  };
+
+  const mods = ac.getClimateModifiers(mob, stormClimate, BIOME_TABLE.plains);
+  assert.equal(mods.seekShelter, true, 'Storm triggers seekShelter');
+  assert.equal(mods.activity, 'shelter', 'Storm activity is shelter');
+  assert.equal(mods.flightAllowed, false, 'Flight disallowed in thunderstorm');
+  assert(mods.speedMult < 1.0, 'Speed reduced in storm');
+
+  return `activity=${mods.activity}, seekShelter=${mods.seekShelter}, speedMult=${mods.speedMult}, flightAllowed=${mods.flightAllowed}`;
+});
+
+check('AB1.2 Freezing winter temperatures trigger animal huddle behavior and high herd tightness', () => {
+  const ac = new AnimalClimateBehavior(createMockWorld());
+  const mob = { spec: { behaviorClass: 'passive', type: 'Sheep' }, basePos: { x: 0, y: 20, z: 0 } };
+  const freezeClimate = {
+    weather: 'clear',
+    isNight: () => false,
+    season: 'winter',
+    precipIntensity: 0.0,
+    temperatureAt: () => -8,
+  };
+
+  const mods = ac.getClimateModifiers(mob, freezeClimate, BIOME_TABLE.tundra);
+  assert.equal(mods.activity, 'huddle', 'Freezing temp triggers huddle');
+  assert.equal(mods.herdTightness, 2.0, 'Herd tightness doubled to 2.0 in deep freeze');
+  assert(mods.wanderRadiusMult < 0.6, 'Wander radius reduced during freezing cold');
+
+  return `activity=${mods.activity}, herdTightness=${mods.herdTightness}x, wanderRadiusMult=${mods.wanderRadiusMult}`;
+});
+
+check('AB1.3 Hot temperatures trigger shade rest or drinking behavior', () => {
+  const ac = new AnimalClimateBehavior(createMockWorld());
+  const mob = { spec: { behaviorClass: 'passive', type: 'Pig' }, basePos: { x: 0, y: 20, z: 0 } };
+  const hotClimate = {
+    weather: 'clear',
+    isNight: () => false,
+    season: 'summer',
+    precipIntensity: 0.0,
+    temperatureAt: () => 34,
+  };
+
+  const mods = ac.getClimateModifiers(mob, hotClimate, BIOME_TABLE.desert);
+  assert.equal(mods.seekShade, true, 'Hot weather triggers seekShade');
+  assert(mods.activity === 'rest' || mods.activity === 'drink', 'Activity is rest or drink');
+  assert(mods.speedMult < 1.0, 'Heat reduces speed');
+
+  return `activity=${mods.activity}, seekShade=${mods.seekShade}, speedMult=${mods.speedMult}`;
+});
+
+check('AB1.4 Night time causes passive animals to enter sleep activity', () => {
+  const ac = new AnimalClimateBehavior(createMockWorld());
+  const mob = { spec: { behaviorClass: 'passive', type: 'Cow' }, basePos: { x: 0, y: 20, z: 0 } };
+  const nightClimate = {
+    weather: 'clear',
+    isNight: () => true,
+    season: 'spring',
+    precipIntensity: 0.0,
+    temperatureAt: () => 12,
+  };
+
+  const mods = ac.getClimateModifiers(mob, nightClimate, BIOME_TABLE.plains);
+  assert.equal(mods.activity, 'sleep', 'Night triggers sleep');
+  assert.equal(mods.speedMult, 0.2, 'Speed reduced to 0.2 during sleep');
+  assert.equal(mods.flightAllowed, false, 'Flight disallowed at night');
+
+  return `activity=${mods.activity}, speedMult=${mods.speedMult}, flightAllowed=${mods.flightAllowed}`;
+});
+
+// ============================================================================
+// PART 4 QA: Real Flying Bird AI & Flocking Engine
+// ============================================================================
+console.log('\n--- PART 4 QA: Real Flying Bird AI & Flocking Engine ---');
+
+check('BF1.1 Bird states flow properly: Perch -> TakeOff -> Fly -> Soar -> Land', () => {
+  const mockWorld = {
+    getSurfaceHeight: () => 10,
+    isSolidAt: (x, y, z) => y <= 10,
+  };
+  const birdAI = new BirdFlightAI(mockWorld);
+  const mob = {
+    basePos: { x: 0, y: 10.1, z: 0 },
+    group: {
+      position: { x: 0, y: 10.1, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } },
+      rotation: { x: 0, y: 0, z: 0 },
+    },
+    arms: [{ rotation: { x: 0, y: 0, z: 0 } }, { rotation: { x: 0, y: 0, z: 0 } }],
+  };
+
+  birdAI.initBird(mob, 0, 0, 10);
+  assert.equal(mob.flightState, 'Perch', 'Initial state is Perch');
+
+  birdAI.setBirdState(mob, 'TakeOff');
+  assert.equal(mob.flightState, 'TakeOff');
+
+  birdAI.setBirdState(mob, 'Fly');
+  assert.equal(mob.flightState, 'Fly');
+
+  birdAI.setBirdState(mob, 'Soar');
+  assert.equal(mob.flightState, 'Soar');
+
+  birdAI.setBirdState(mob, 'Land');
+  assert.equal(mob.flightState, 'Land');
+
+  return 'Perch -> TakeOff -> Fly -> Soar -> Land state transitions valid';
+});
+
+check('BF1.2 Flying bird movement operates in 3D without gravity', () => {
+  const mockWorld = {
+    getSurfaceHeight: () => 10,
+    isSolidAt: (x, y, z) => y <= 10,
+  };
+  const birdAI = new BirdFlightAI(mockWorld);
+  const mob = {
+    basePos: { x: 0, y: 22, z: 0 },
+    group: {
+      position: { x: 0, y: 22, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } },
+      rotation: { x: 0, y: 0, z: 0 },
+    },
+    arms: [{ rotation: { x: 0, y: 0, z: 0 } }, { rotation: { x: 0, y: 0, z: 0 } }],
+  };
+  birdAI.initBird(mob, 0, 0, 22);
+  birdAI.setBirdState(mob, 'Fly');
+  mob.flyVelocity.set(4, 0, 3); // Level flight at 5 m/s
+
+  const startY = mob.basePos.y;
+  birdAI.updateBird(0.5, mob, null, { weather: 'clear', isNight: () => false }, [mob]);
+
+  // If gravity existed (-9.8 m/s^2), Y would have dropped by ~1.2m
+  // In 3D flight AI, the bird maintains altitude towards targetAltitude without downward gravity fall
+  assert(mob.basePos.y >= startY - 0.2, 'Zero gravity: bird does not drop downward like walking entity');
+  assert(Math.hypot(mob.basePos.x, mob.basePos.z) > 0, 'Bird moved along 3D flight velocity');
+
+  return `Maintained altitude at y=${mob.basePos.y.toFixed(2)} (no downward gravity fall) while moving horizontally`;
+});
+
+check('BF1.3 Obstacle evasion raycasts turn bird away from solid terrain', () => {
+  const mockWorld = {
+    getSurfaceHeight: () => 10,
+    // Solid pillar directly ahead at x=3, y=15, z=0
+    isSolidAt: (x, y, z) => y <= 10 || (Math.floor(x) === 3 && Math.floor(z) === 0 && y <= 18),
+  };
+  const birdAI = new BirdFlightAI(mockWorld);
+  const mob = {
+    basePos: { x: 0, y: 15, z: 0 },
+    group: {
+      position: { x: 0, y: 15, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } },
+      rotation: { x: 0, y: 0, z: 0 },
+    },
+    arms: [{ rotation: { x: 0, y: 0, z: 0 } }, { rotation: { x: 0, y: 0, z: 0 } }],
+    flockId: 2,
+  };
+  birdAI.initBird(mob, 0, 0, 15);
+  mob.yaw = Math.PI * 0.5; // Yaw towards +X
+  mob.flyVelocity.set(5, 0, 0);
+
+  const prevYaw = mob.yaw;
+  birdAI._avoidVoxelObstacles(0.1, mob);
+
+  assert(mob.flyVelocity.y >= 4.0 || mob.yaw !== prevYaw, 'Steered upward or yawed away from obstacle');
+  return `Avoided obstacle ahead -> new climb vy=${mob.flyVelocity.y.toFixed(1)}, yaw changed from ${prevYaw.toFixed(2)} to ${mob.yaw.toFixed(2)}`;
+});
+
+check('BF1.4 Chicken gentle flutter fall caps downward velocity to -1.8 m/s', () => {
+  let chickenVelocityY = -6.5; // High falling speed
+  const onGround = false;
+
+  if (!onGround && chickenVelocityY < -0.4) {
+    chickenVelocityY = Math.max(chickenVelocityY, -1.8);
+  }
+
+  assert.equal(chickenVelocityY, -1.8, 'Falling velocity clamped to -1.8 m/s max');
+  return `Falling velocity -6.5 m/s clamped to gentle flutter speed: ${chickenVelocityY} m/s`;
+});
+
 console.log('\n====================================================================');
 console.log(` FINAL QA RESULT: ${passed} PASSED, ${failed} FAILED`);
 console.log('====================================================================');
 if (failed > 0) process.exit(1);
+

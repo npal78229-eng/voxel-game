@@ -455,6 +455,195 @@ paintOreTile(68, 'ruby_ore', DEEP_STONE_PAL, ['#b8143a', '#eb2654', '#ff7597'], 
 paintOreTile(69, 'azure_ore', DEEP_STONE_PAL, ['#1d4ed8', '#3b82f6', '#93c5fd'], 169);
 paintSeamlessRampTile(70, 'lumen_lamp', ['#2c7a7b', '#38b2ac', '#81e6d9', '#e6fffa'], 170, 1);
 
+// ============================================================================
+// PART 1 — FOREST BIOMES & NEW TREES (Tiles 71..101)
+// ============================================================================
+
+/**
+ * Renders a Forest Floor Tile: seamless loam base + scattered fallen leaf litter / needles
+ */
+function paintFloorLitterTile(tileIdx, name, basePalHex, litterPalHex, seed, isNeedles = false) {
+  paintSeamlessRampTile(tileIdx, name, basePalHex, seed, 2);
+  const litterPal = litterPalHex.map(hexToRgb);
+  const rng = makeRNG(seed + 314);
+
+  if (isNeedles) {
+    // Pine needles: small 2-3 pixel diagonal thin lines
+    for (let i = 0; i < 9; i++) {
+      const sx = Math.floor(rng() * 13) + 1;
+      const sy = Math.floor(rng() * 13) + 1;
+      const col = litterPal[Math.floor(rng() * litterPal.length)];
+      const diag = rng() < 0.5 ? 1 : -1;
+      putTilePixel(tileIdx, sx, sy, col);
+      putTilePixel(tileIdx, sx + 1, sy + diag, col);
+      if (rng() < 0.5) putTilePixel(tileIdx, sx + 2, sy + diag * 2, col);
+    }
+  } else {
+    // Deciduous leaves: 2x2 or 3x2 small leaf flakes
+    for (let i = 0; i < 7; i++) {
+      const lx = Math.floor(rng() * 12) + 2;
+      const ly = Math.floor(rng() * 12) + 2;
+      const col = litterPal[Math.floor(rng() * litterPal.length)];
+      putTilePixel(tileIdx, lx, ly, col);
+      putTilePixel(tileIdx, lx + 1, ly, col);
+      putTilePixel(tileIdx, lx, ly + 1, col);
+      if (rng() < 0.4) putTilePixel(tileIdx, lx + 1, ly + 1, col);
+    }
+  }
+}
+
+/**
+ * Renders a crisp 16x16 cross-plane plant sprite with transparency
+ */
+function paintCrossSprite(tileIdx, name, drawFn) {
+  tileRegistry[name] = {
+    index: tileIdx,
+    col: tileIdx % GRID_COLS,
+    row: Math.floor(tileIdx / GRID_COLS),
+  };
+  const setPix = (lx, ly, hex, alpha = 255) => {
+    putTilePixel(tileIdx, lx, ly, hexToRgb(hex), alpha);
+  };
+  drawFn(setPix);
+}
+
+// 71..74: Dark Oak Wood (near-black brown with deep grooves; very dark, slightly blue-green dense leaves)
+paintLogTopTile(71, 'log_darkoak_top', '#241a12', '#453224', '#322318');
+paintTreeBarkTile(72, 'log_darkoak_side', ['#1b130e', '#261b13', '#33241a', '#140e0a'], 172, false);
+paintPlanksTile(73, 'planks_darkoak', ['#382618', '#473221', '#543b27', '#2e1e13'], 173);
+paintSeamlessRampTile(74, 'leaves_darkoak', ['#153825', '#1c4730', '#24593c', '#102e1e'], 174, 1);
+
+// 75..80: Maple Wood (smoother grey-brown with light streaks; red, orange, yellow leaf blocks)
+paintLogTopTile(75, 'log_maple_top', '#52453c', '#a89279', '#8a745d');
+paintTreeBarkTile(76, 'log_maple_side', ['#4f443b', '#61544a', '#736458', '#857568', '#423830'], 176, false);
+paintPlanksTile(77, 'planks_maple', ['#a68665', '#b89674', '#c9a785', '#967757'], 177);
+paintSeamlessRampTile(78, 'leaves_maple_red', ['#9e2116', '#b5291d', '#c93426', '#871a10'], 178, 1);
+paintSeamlessRampTile(79, 'leaves_maple_orange', ['#c95414', '#de621b', '#f07426', '#b3470d'], 179, 1);
+paintSeamlessRampTile(80, 'leaves_maple_yellow', ['#c99a14', '#deac1b', '#f0be26', '#b3860d'], 180, 1);
+
+// 81..84: Redwood (deep red-brown fibrous grooves; deep blue-green needles)
+paintLogTopTile(81, 'log_redwood_top', '#3d1610', '#8c3d2e', '#6e2f23');
+paintTreeBarkTile(82, 'log_redwood_side', ['#3d1610', '#541f17', '#6e2a1e', '#873426', '#2e100b'], 182, false);
+paintPlanksTile(83, 'planks_redwood', ['#7d3425', '#914030', '#a34b3a', '#6c2b1e'], 183);
+paintSeamlessRampTile(84, 'leaves_redwood', ['#183b34', '#204a42', '#285c52', '#122e28'], 184, 1);
+
+// 85..87: Forest Floor (dark loam with leaf litter)
+const FOREST_LOAM = ['#452c1a', '#543621', '#613f27', '#3b2414'];
+paintFloorLitterTile(85, 'forest_floor_top_a', FOREST_LOAM, ['#284f22', '#6b4f24', '#7d4520'], 185);
+paintFloorLitterTile(86, 'forest_floor_top_b', FOREST_LOAM, ['#345c2c', '#7d5c2a', '#8a4e25'], 186);
+paintGrassSideTile(87, 'forest_floor_side', DIRT_PAL, FOREST_LOAM, 187);
+
+// 88..90: Maple Floor (loam with red and brown leaf litter)
+const MAPLE_LOAM = ['#4f331f', '#5e3d26', '#6d472d', '#422a18'];
+paintFloorLitterTile(88, 'maple_floor_top_a', MAPLE_LOAM, ['#b5291d', '#de621b', '#7d4520'], 188);
+paintFloorLitterTile(89, 'maple_floor_top_b', MAPLE_LOAM, ['#c93426', '#f0be26', '#8a4e25'], 189);
+paintGrassSideTile(90, 'maple_floor_side', DIRT_PAL, MAPLE_LOAM, 190);
+
+// 91..93: Needle Floor (brown pine needle floor)
+const NEEDLE_LOAM = ['#422615', '#52301b', '#5e3720', '#361e10'];
+paintFloorLitterTile(91, 'needle_floor_top_a', NEEDLE_LOAM, ['#784a28', '#2e190b', '#8c5932'], 191, true);
+paintFloorLitterTile(92, 'needle_floor_top_b', NEEDLE_LOAM, ['#82522c', '#331c0c', '#996338'], 192, true);
+paintGrassSideTile(93, 'needle_floor_side', DIRT_PAL, NEEDLE_LOAM, 193);
+
+// 94: Moss Block (lush velvety green)
+paintSeamlessRampTile(94, 'moss', ['#3b7829', '#488f33', '#55a33c', '#336923'], 194, 2);
+
+// 95..101: Undergrowth Cross-Plane Sprites (with transparent background)
+// 95: Fern (graceful branching green fronds)
+paintCrossSprite(95, 'fern', (p) => {
+  for (let y = 1; y < 15; y++) p(7, y, '#2e6b20');
+  for (let y = 3; y < 14; y++) {
+    const spread = Math.floor((14 - y) * 0.45);
+    for (let x = 7 - spread; x <= 7 + spread; x++) {
+      if (x !== 7 && (x + y) % 2 === 0) {
+        p(x, y, (x % 3 === 0) ? '#489c35' : '#39822a');
+      }
+    }
+  }
+});
+
+// 96: Tall Grass (slender waving green blades)
+paintCrossSprite(96, 'tall_grass_plant', (p) => {
+  [4, 6, 7, 9, 11].forEach((bx, i) => {
+    const h = 8 + (i % 3) * 3;
+    for (let y = 1; y <= h; y++) {
+      const sway = Math.floor((y / h) * ((i % 2 === 0 ? 1 : -1) * 2));
+      p(bx + sway, y, y > h - 3 ? '#6bc24a' : '#4fa135');
+    }
+  });
+});
+
+// 97: Red Mushroom (spotted scarlet cap with cream stem)
+paintCrossSprite(97, 'mushroom_red', (p) => {
+  // Stem
+  for (let y = 1; y <= 5; y++) {
+    p(7, y, '#ded5c5');
+    p(8, y, '#e8e0d1');
+  }
+  // Cap
+  for (let y = 6; y <= 11; y++) {
+    const w = (y <= 9 ? 4 : 3);
+    for (let x = 7 - w; x <= 8 + w; x++) {
+      p(x, y, '#c9281a');
+    }
+  }
+  // White spots
+  [[5, 8], [9, 8], [7, 10], [6, 7], [10, 9]].forEach(([sx, sy]) => {
+    p(sx, sy, '#ffffff');
+  });
+});
+
+// 98: Brown Mushroom (broad earthy tan cap with cream stem)
+paintCrossSprite(98, 'mushroom_brown', (p) => {
+  for (let y = 1; y <= 5; y++) {
+    p(7, y, '#ded5c5');
+    p(8, y, '#e8e0d1');
+  }
+  for (let y = 6; y <= 9; y++) {
+    const w = (y === 6 ? 5 : y === 7 ? 4 : 2);
+    for (let x = 7 - w; x <= 8 + w; x++) {
+      p(x, y, (y >= 8 ? '#7a5433' : '#94663d'));
+    }
+  }
+});
+
+// 99: Bluebell (graceful bell-shaped violet-blue woodland flower)
+paintCrossSprite(99, 'flower_bluebell', (p) => {
+  for (let y = 1; y <= 12; y++) p(7, y, '#38822d');
+  [[5, 9], [6, 9], [5, 10], [6, 10], [8, 11], [9, 11], [8, 12], [9, 12]].forEach(([bx, by]) => {
+    p(bx, by, '#4f6be8');
+  });
+  p(5, 8, '#708bff');
+  p(9, 10, '#708bff');
+});
+
+// 100: Violet (delicate woodland violet)
+paintCrossSprite(100, 'flower_violet', (p) => {
+  for (let y = 1; y <= 8; y++) p(7, y, '#38822d');
+  for (let x = 5; x <= 9; x++) {
+    for (let y = 8; y <= 12; y++) {
+      if (Math.abs(x - 7) + Math.abs(y - 10) <= 2) {
+        p(x, y, '#8c3adb');
+      }
+    }
+  }
+  p(7, 10, '#fadb38'); // yellow center
+});
+
+// 101: Anemone / Wood Anemone (white star flower)
+paintCrossSprite(101, 'flower_anemone', (p) => {
+  for (let y = 1; y <= 9; y++) p(7, y, '#38822d');
+  for (let x = 5; x <= 9; x++) {
+    for (let y = 9; y <= 13; y++) {
+      if ((x === 7 || y === 11) || Math.abs(x - 7) === Math.abs(y - 11)) {
+        p(x, y, '#f7f7f7');
+      }
+    }
+  }
+  p(7, 11, '#e6b82e'); // golden center
+});
+
+
 // Output 256x256 crisp pixel-art atlas & 1024x1024 nearest-upscaled copy so both paths match 100%
 const outDirs = [
   path.resolve(__dirname, '../public/assets/textures'),

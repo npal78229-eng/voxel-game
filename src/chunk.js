@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { BLOCK_BY_ID, BLOCK_DEFINITIONS } from './blocks.js';
 import { WORLD_MAX_Y } from './noise.js';
+import { buildFluidGeometry } from './fluids/FluidMesher.js';
 
 // ============================================================================
-// Phases U0.2, U2.2, U2.5 & U3 — VoxelChunk with Worker Transferable Upload & Water Pass
+// Phases U0.2, U2.2, U2.5 & U3 — VoxelChunk with Worker Transferable Upload & Fluid Meshes
 // ============================================================================
 
 export const CHUNK_SIZE = 16;
@@ -18,8 +19,12 @@ export class VoxelChunk {
     this.startZ = chunkZ * CHUNK_SIZE;
 
     this.blocks = new Map();
+    this.fluids = new Map();
     this.instancedMesh = null;
+    this.transMesh = null;
     this.waterMesh = null;
+    this.lavaMesh = null;
+    this.plantMesh = null;
     this.visibleInstanceCount = 0;
 
     this.naiveTriangleCount = 0;
@@ -41,7 +46,7 @@ export class VoxelChunk {
     this.blocks = new Map(payload.blockEntries);
     this.naiveTriangleCount = payload.naiveTris || this.blocks.size * 12;
     this.greedyTriangleCount = payload.greedyTris || payload.opaqueCount * 2;
-    this.visibleInstanceCount = payload.opaqueCount + payload.transCount;
+    this.visibleInstanceCount = payload.opaqueCount + payload.transCount + (payload.plantCount || 0);
 
     // 1. Upload Opaque InstancedMesh
     const opaqueCap = Math.max(payload.opaqueCount + 64, 256);
@@ -84,48 +89,94 @@ export class VoxelChunk {
     this.instancedMesh.instanceColor.needsUpdate = true;
     this.instancedMesh.computeBoundingSphere();
 
-    // 2. Upload Transparent Water/Ice/Glass Pass (Phase U2.5)
+    // 2. Upload Transparent Ice/Glass Pass (Phase U2.5)
     if (payload.transCount > 0) {
       const transCap = Math.max(payload.transCount + 32, 128);
-      if (!this.waterMesh || this.waterMesh.instanceMatrix.count < payload.transCount) {
-        if (this.waterMesh) {
-          this.world.scene.remove(this.waterMesh);
-          this.waterMesh.geometry.dispose();
-          this.waterMesh.dispose();
+      if (!this.transMesh || this.transMesh.instanceMatrix.count < payload.transCount) {
+        if (this.transMesh) {
+          this.world.scene.remove(this.transMesh);
+          this.transMesh.geometry.dispose();
+          this.transMesh.dispose();
         }
-        const waterGeo = this.world.sharedGeometry.clone();
-        waterGeo.setAttribute(
+        const transGeo = this.world.sharedGeometry.clone();
+        transGeo.setAttribute(
           'instanceTiles',
           new THREE.InstancedBufferAttribute(new Float32Array(transCap * 3), 3)
         );
-        this.waterMesh = new THREE.InstancedMesh(
-          waterGeo,
+        this.transMesh = new THREE.InstancedMesh(
+          transGeo,
           this.world.sharedWaterMaterial,
           transCap
         );
-        this.waterMesh.renderOrder = 2;
-        this.world.scene.add(this.waterMesh);
+        this.transMesh.renderOrder = 2;
+        this.world.scene.add(this.transMesh);
       }
-      this.waterMesh.instanceMatrix.array.set(payload.transMatrices);
-      if (!this.waterMesh.instanceColor) {
-        this.waterMesh.instanceColor = new THREE.InstancedBufferAttribute(
+      this.transMesh.instanceMatrix.array.set(payload.transMatrices);
+      if (!this.transMesh.instanceColor) {
+        this.transMesh.instanceColor = new THREE.InstancedBufferAttribute(
           new Float32Array(transCap * 3),
           3
         );
       }
-      this.waterMesh.instanceColor.array.set(payload.transColors);
+      this.transMesh.instanceColor.array.set(payload.transColors);
       if (payload.transTiles) {
-        const wTileAttr = this.waterMesh.geometry.getAttribute('instanceTiles');
+        const wTileAttr = this.transMesh.geometry.getAttribute('instanceTiles');
         wTileAttr.array.set(payload.transTiles);
         wTileAttr.needsUpdate = true;
       }
-      this.waterMesh.count = payload.transCount;
-      this.waterMesh.instanceMatrix.needsUpdate = true;
-      this.waterMesh.instanceColor.needsUpdate = true;
-      this.waterMesh.computeBoundingSphere();
-    } else if (this.waterMesh) {
-      this.waterMesh.count = 0;
+      this.transMesh.count = payload.transCount;
+      this.transMesh.instanceMatrix.needsUpdate = true;
+      this.transMesh.instanceColor.needsUpdate = true;
+      this.transMesh.computeBoundingSphere();
+    } else if (this.transMesh) {
+      this.transMesh.count = 0;
     }
+
+    // 3. Upload Plant Pass (Cross-Plane Plants)
+    if (payload.plantCount > 0) {
+      const plantCap = Math.max(payload.plantCount + 16, 32);
+      if (!this.plantMesh || this.plantMesh.instanceMatrix.count < payload.plantCount) {
+        if (this.plantMesh) {
+          this.world.scene.remove(this.plantMesh);
+          this.plantMesh.geometry.dispose();
+          this.plantMesh.dispose();
+        }
+        const plantGeo = this.world.sharedPlantGeometry.clone();
+        plantGeo.setAttribute(
+          'instanceTiles',
+          new THREE.InstancedBufferAttribute(new Float32Array(plantCap * 3), 3)
+        );
+        this.plantMesh = new THREE.InstancedMesh(
+          plantGeo,
+          this.world.sharedPlantMaterial,
+          plantCap
+        );
+        this.plantMesh.castShadow = true;
+        this.world.scene.add(this.plantMesh);
+      }
+      this.plantMesh.instanceMatrix.array.set(payload.plantMatrices);
+      if (!this.plantMesh.instanceColor) {
+        this.plantMesh.instanceColor = new THREE.InstancedBufferAttribute(
+          new Float32Array(plantCap * 3),
+          3
+        );
+      }
+      this.plantMesh.instanceColor.array.set(payload.plantColors);
+      if (payload.plantTiles) {
+        const pTileAttr = this.plantMesh.geometry.getAttribute('instanceTiles');
+        pTileAttr.array.set(payload.plantTiles);
+        pTileAttr.needsUpdate = true;
+      }
+      this.plantMesh.count = payload.plantCount;
+      this.plantMesh.instanceMatrix.needsUpdate = true;
+      this.plantMesh.instanceColor.needsUpdate = true;
+      this.plantMesh.computeBoundingSphere();
+    } else if (this.plantMesh) {
+      this.plantMesh.count = 0;
+    }
+
+    // 4. Build smooth Minecraft-style fluid meshes (variable quad heights & corner averaging)
+    this.rebuildFluidMeshes();
   }
 
   generateData() {
@@ -173,7 +224,7 @@ export class VoxelChunk {
       wz < this.startZ + CHUNK_SIZE
     ) {
       const b = this.blocks.get(key);
-      return Boolean(b && b !== 'water');
+      return Boolean(b && b !== 'water' && b !== 'lava');
     }
     return this.world.hasBlockOrProcedural(wx, wy, wz);
   }
@@ -196,6 +247,9 @@ export class VoxelChunk {
 
     for (const [key, blockType] of this.blocks.entries()) {
       const [wx, wy, wz] = this.world.parseKey(key);
+      if (blockType === 'water' || blockType === 'lava') {
+        continue;
+      }
       if (xrayMode) {
         if (XRAY_SET.has(blockType)) {
           opaqueEntries.push([wx, wy, wz, blockType]);
@@ -305,36 +359,36 @@ export class VoxelChunk {
     }
     this.instancedMesh.computeBoundingSphere();
 
-    // Update water pass
+    // Update non-fluid transparent pass (ice, glass)
     if (transEntries.length > 0) {
       const transCap = Math.max(transEntries.length + 32, 128);
-      if (!this.waterMesh || this.waterMesh.instanceMatrix.count < transEntries.length) {
-        if (this.waterMesh) {
-          this.world.scene.remove(this.waterMesh);
-          this.waterMesh.geometry.dispose();
-          this.waterMesh.dispose();
+      if (!this.transMesh || this.transMesh.instanceMatrix.count < transEntries.length) {
+        if (this.transMesh) {
+          this.world.scene.remove(this.transMesh);
+          this.transMesh.geometry.dispose();
+          this.transMesh.dispose();
         }
-        const waterGeo = this.world.sharedGeometry.clone();
-        waterGeo.setAttribute(
+        const transGeo = this.world.sharedGeometry.clone();
+        transGeo.setAttribute(
           'instanceTiles',
           new THREE.InstancedBufferAttribute(new Float32Array(transCap * 3), 3)
         );
-        this.waterMesh = new THREE.InstancedMesh(
-          waterGeo,
+        this.transMesh = new THREE.InstancedMesh(
+          transGeo,
           this.world.sharedWaterMaterial,
           transCap
         );
-        this.waterMesh.renderOrder = 2;
-        this.world.scene.add(this.waterMesh);
+        this.transMesh.renderOrder = 2;
+        this.world.scene.add(this.transMesh);
       }
-      const wTileAttr = this.waterMesh.geometry.getAttribute('instanceTiles');
+      const wTileAttr = this.transMesh.geometry.getAttribute('instanceTiles');
       for (let i = 0; i < transEntries.length; i++) {
         const [wx, wy, wz, blockType] = transEntries[i];
         dummy.position.set(wx, wy, wz);
         dummy.updateMatrix();
-        this.waterMesh.setMatrixAt(i, dummy.matrix);
+        this.transMesh.setMatrixAt(i, dummy.matrix);
         const def = BLOCK_BY_ID[blockType] || BLOCK_BY_ID.water;
-        this.waterMesh.setColorAt(i, def.color);
+        this.transMesh.setColorAt(i, def.color);
         if (wTileAttr) {
           const tiles = def.tiles || { top: 30, side: 30, bottom: 30 };
           wTileAttr.array[i * 3 + 0] = tiles.top;
@@ -343,14 +397,53 @@ export class VoxelChunk {
         }
       }
       if (wTileAttr) wTileAttr.needsUpdate = true;
-      this.waterMesh.count = transEntries.length;
-      this.waterMesh.instanceMatrix.needsUpdate = true;
-      if (this.waterMesh.instanceColor) {
-        this.waterMesh.instanceColor.needsUpdate = true;
+      this.transMesh.count = transEntries.length;
+      this.transMesh.instanceMatrix.needsUpdate = true;
+      if (this.transMesh.instanceColor) {
+        this.transMesh.instanceColor.needsUpdate = true;
       }
-      this.waterMesh.computeBoundingSphere();
+      this.transMesh.computeBoundingSphere();
+    } else if (this.transMesh) {
+      this.transMesh.count = 0;
+    }
+
+    // Rebuild smooth Minecraft-style fluid meshes (variable quad heights & corner averaging)
+    this.rebuildFluidMeshes();
+  }
+
+  rebuildFluidMeshes() {
+    if (!this.world || !this.world.scene) return;
+
+    // 1. Water Mesh
+    const waterGeo = buildFluidGeometry(this, 'water', this.world);
+    if (waterGeo) {
+      if (!this.waterMesh) {
+        this.waterMesh = new THREE.Mesh(waterGeo, this.world.sharedWaterMaterial);
+        this.waterMesh.renderOrder = 2;
+        this.world.scene.add(this.waterMesh);
+      } else {
+        this.waterMesh.geometry.dispose();
+        this.waterMesh.geometry = waterGeo;
+        this.waterMesh.visible = true;
+      }
     } else if (this.waterMesh) {
-      this.waterMesh.count = 0;
+      this.waterMesh.visible = false;
+    }
+
+    // 2. Lava Mesh
+    const lavaGeo = buildFluidGeometry(this, 'lava', this.world);
+    if (lavaGeo) {
+      if (!this.lavaMesh) {
+        this.lavaMesh = new THREE.Mesh(lavaGeo, this.world.sharedLavaMaterial);
+        this.lavaMesh.renderOrder = 1;
+        this.world.scene.add(this.lavaMesh);
+      } else {
+        this.lavaMesh.geometry.dispose();
+        this.lavaMesh.geometry = lavaGeo;
+        this.lavaMesh.visible = true;
+      }
+    } else if (this.lavaMesh) {
+      this.lavaMesh.visible = false;
     }
   }
 
@@ -361,13 +454,30 @@ export class VoxelChunk {
       this.instancedMesh.dispose();
       this.instancedMesh = null;
     }
+    if (this.transMesh) {
+      this.world.scene.remove(this.transMesh);
+      this.transMesh.geometry.dispose();
+      this.transMesh.dispose();
+      this.transMesh = null;
+    }
     if (this.waterMesh) {
       this.world.scene.remove(this.waterMesh);
       this.waterMesh.geometry.dispose();
-      this.waterMesh.dispose();
       this.waterMesh = null;
     }
+    if (this.lavaMesh) {
+      this.world.scene.remove(this.lavaMesh);
+      this.lavaMesh.geometry.dispose();
+      this.lavaMesh = null;
+    }
+    if (this.plantMesh) {
+      this.world.scene.remove(this.plantMesh);
+      this.plantMesh.geometry.dispose();
+      this.plantMesh.dispose();
+      this.plantMesh = null;
+    }
     this.blocks.clear();
+    this.fluids.clear();
     this.visibleInstanceCount = 0;
   }
 }
