@@ -507,10 +507,46 @@ function executeConsoleCommand(cmdStr) {
     controls.isFlyMode = mode === 'fly' || mode === 'creative' || !controls.isFlyMode;
     showToast(`Physics Mode: ${controls.isFlyMode ? 'Fly Mode' : 'Survival AABB'}`);
   } else if (cmd === 'give') {
-    const item = parts[1] || 'gem_ore';
+    let item = (parts[1] || 'gem_ore').toLowerCase();
+    if (item === 'water_source') item = 'water';
+    if (item === 'lava_source') item = 'lava';
     const count = Number(parts[2]) || 16;
     inventory.addItem(item, count);
     showToast(`Added ${count}x ${item} to inventory`);
+  } else if (cmd === 'fluidstats') {
+    const sim = world.fluidSimulator;
+    const stats = {
+      activeFluidBlocks: sim ? sim.fluids.size : 0,
+      queuedUpdates: sim ? sim.queue.length : 0,
+      lastTickUpdates: sim ? sim.activeUpdatesCount : 0,
+      simTime: sim ? Number(sim.currentTime.toFixed(2)) : 0,
+      pendingRemeshChunks: world.pendingRemeshChunks ? world.pendingRemeshChunks.size : 0,
+    };
+    console.table(stats);
+    showToast(
+      `[FluidStats] Active: ${stats.activeFluidBlocks} | Queued: ${stats.queuedUpdates} | LastTick: ${stats.lastTickUpdates} | RemeshChunks: ${stats.pendingRemeshChunks}`,
+      5500
+    );
+  } else if (cmd === 'fluidtick') {
+    const count = Math.max(1, Number(parts[1]) || 1);
+    let totalProcessed = 0;
+    if (world.fluidSimulator) {
+      for (let i = 0; i < count; i++) {
+        world.fluidSimulator.currentTime += 0.25;
+        totalProcessed += world.fluidSimulator.tick(world.fluidSimulator.currentTime, 500);
+      }
+      if (world.pendingRemeshChunks) {
+        for (const chunk of world.pendingRemeshChunks) {
+          chunk.rebuildFluidMeshes();
+        }
+        world.pendingRemeshChunks.clear();
+      }
+    }
+    showToast(`Stepped ${count} fluid tick(s) (${totalProcessed} updates processed)`);
+  } else if (cmd === 'fluiddebug') {
+    const state = (parts[1] || '').toLowerCase();
+    world.fluidDebug = state === 'on' ? true : state === 'off' ? false : !world.fluidDebug;
+    showToast(`Fluid Debug: ${world.fluidDebug ? 'ON' : 'OFF'}`);
   } else if (cmd === 'tp' && parts.length >= 4) {
     controls.playerPosition.set(
       Number(parts[1]) || 0,
@@ -899,15 +935,14 @@ function animate() {
   const isMoving = controls.isMovingHorizontally();
   sfx.updateFootsteps(deltaTime, isMoving && controls.onGround);
 
-  // Check underwater camera state (Phase U2.5)
-  const headBlock = world.getBlock(
-    controls.playerPosition.x,
-    controls.playerPosition.y,
-    controls.playerPosition.z
-  );
-  if (underwaterEl) {
-    underwaterEl.classList.toggle('hidden', headBlock !== 'water');
-  }
+  // Job 2: Fluid Camera Screen Overlays & Oxygen Bar
+  const isUnderwater = controls.headSubmerged && controls.headSubmergedType === 'water';
+  const isInLava = controls.headSubmerged && controls.headSubmergedType === 'lava';
+
+  if (underwaterEl) underwaterEl.classList.toggle('hidden', !isUnderwater);
+  if (lavaOverlayEl) lavaOverlayEl.classList.toggle('hidden', !isInLava);
+
+  renderOxygenBar();
 
   // 2. Update rigged character & AnimationMixer
   character.update(
@@ -928,12 +963,24 @@ function animate() {
   }
 
   // 3. Update Sky, Animated Fluids, Mobs & Particles
+  world.updateFluids(deltaTime);
   sharedShaderUniforms.uTime.value += deltaTime;
   camera.getWorldDirection(lookDirection);
   const currentBiome = typeof world.getBiomeAt === 'function'
     ? world.getBiomeAt(controls.playerPosition.x, controls.playerPosition.z)
     : null;
   dayNight.update(deltaTime, controls.playerPosition, currentBiome);
+
+  // Job 2: Submerged camera fog color & density override
+  if (scene.fog) {
+    if (isUnderwater) {
+      scene.fog.color.set(FLUID_CONFIG.water.underwaterFogColor);
+      scene.fog.density = 0.065;
+    } else if (isInLava) {
+      scene.fog.color.set(FLUID_CONFIG.lava.inLavaFogColor);
+      scene.fog.density = 0.40;
+    }
+  }
   mobs.update(
     deltaTime,
     controls.playerPosition,
