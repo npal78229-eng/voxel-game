@@ -152,12 +152,12 @@ function createCrossPlaneGeometry() {
   const geometry = new THREE.BufferGeometry();
   const d = 0.38;
   const vertices = new Float32Array([
-    // Quad 1: (-d, 0, -d) to (+d, 1, +d)
-    -d, 0.0, -d,   d, 0.0,  d,   d, 1.0,  d,
-    -d, 0.0, -d,   d, 1.0,  d,  -d, 1.0, -d,
-    // Quad 2: (-d, 0, +d) to (+d, 1, -d)
-    -d, 0.0,  d,   d, 0.0, -d,   d, 1.0, -d,
-    -d, 0.0,  d,   d, 1.0, -d,  -d, 1.0,  d,
+    // Quad 1: (-d, -0.5, -d) to (+d, 0.5, +d)
+    -d, -0.5, -d,   d, -0.5,  d,   d,  0.5,  d,
+    -d, -0.5, -d,   d,  0.5,  d,  -d,  0.5, -d,
+    // Quad 2: (-d, -0.5, +d) to (+d, 0.5, -d)
+    -d, -0.5,  d,   d, -0.5, -d,   d,  0.5, -d,
+    -d, -0.5,  d,   d,  0.5, -d,  -d,  0.5,  d,
   ]);
   const uvs = new Float32Array([
     0.0, 0.0,  1.0, 0.0,  1.0, 1.0,
@@ -347,7 +347,7 @@ export class VoxelWorld {
   }
 
   coordKey(x, y, z) {
-    return `${Math.round(x)},${Math.round(y)},${Math.round(z)}`;
+    return `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
   }
 
   parseKey(key) {
@@ -365,23 +365,28 @@ export class VoxelWorld {
     };
   }
 
+  isChunkLoadedAt(wx, wz) {
+    const { chunkX, chunkZ } = this.worldToChunkCoords(wx, wz);
+    return this.chunks.has(this.chunkKey(chunkX, chunkZ));
+  }
+
   getChunkAtWorld(wx, wz) {
     const { chunkX, chunkZ } = this.worldToChunkCoords(wx, wz);
     return this.chunks.get(this.chunkKey(chunkX, chunkZ)) || null;
   }
 
   getSurfaceHeight(wx, wz) {
-    return this.noise.getSurfaceHeight(Math.round(wx), Math.round(wz));
+    return this.noise.getSurfaceHeight(Math.floor(wx), Math.floor(wz));
   }
 
   getBiomeNameAt(wx, wz) {
-    return this.noise.getBiomeAt(Math.round(wx), Math.round(wz)).name;
+    return this.noise.getBiomeAt(Math.floor(wx), Math.floor(wz)).name;
   }
 
   getBlock(wx, wy, wz) {
-    const x = Math.round(wx);
-    const y = Math.round(wy);
-    const z = Math.round(wz);
+    const x = Math.floor(wx);
+    const y = Math.floor(wy);
+    const z = Math.floor(wz);
     const chunk = this.getChunkAtWorld(x, z);
     if (!chunk) return null;
     return chunk.blocks.get(this.coordKey(x, y, z)) || null;
@@ -555,9 +560,9 @@ export class VoxelWorld {
   }
 
   getFluid(wx, wy, wz) {
-    const x = Math.round(wx);
-    const y = Math.round(wy);
-    const z = Math.round(wz);
+    const x = Math.floor(wx);
+    const y = Math.floor(wy);
+    const z = Math.floor(wz);
     const chunk = this.getChunkAtWorld(x, z);
     if (!chunk) return null;
     const key = this.coordKey(x, y, z);
@@ -575,9 +580,9 @@ export class VoxelWorld {
   }
 
   setFluid(wx, wy, wz, fluidData) {
-    const x = Math.round(wx);
-    const y = Math.round(wy);
-    const z = Math.round(wz);
+    const x = Math.floor(wx);
+    const y = Math.floor(wy);
+    const z = Math.floor(wz);
     const chunk = this.getChunkAtWorld(x, z);
     if (!chunk) return;
     if (!chunk.fluids) chunk.fluids = new Map();
@@ -588,9 +593,9 @@ export class VoxelWorld {
   }
 
   removeFluid(wx, wy, wz) {
-    const x = Math.round(wx);
-    const y = Math.round(wy);
-    const z = Math.round(wz);
+    const x = Math.floor(wx);
+    const y = Math.floor(wy);
+    const z = Math.floor(wz);
     const chunk = this.getChunkAtWorld(x, z);
     if (!chunk) return;
     if (chunk.fluids) {
@@ -701,6 +706,9 @@ export class VoxelWorld {
         const dx = Math.abs(chunk.chunkX - pCX);
         const dz = Math.abs(chunk.chunkZ - pCZ);
         if (dx > UNLOAD_RADIUS || dz > UNLOAD_RADIUS) {
+          if (this.fluidSimulator) {
+            this.fluidSimulator.onChunkUnloaded(chunk.chunkX, chunk.chunkZ);
+          }
           chunk.dispose();
           this.chunks.delete(key);
         }

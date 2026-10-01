@@ -146,3 +146,49 @@ All gameplay tuning numbers live in dedicated per-system data files under `src/c
    - Animal climate AI: `src/climate/AnimalClimateBehavior.js` computes climate modifiers every 1s (staggered) and drives `Shelter`, `Rest`, `Drink`, `Huddle`.
 
 
+
+---
+
+## 8. Architecture: Plants, Fluids, Animal Panic, Spawn Caps, Long Days & Lightning
+
+### 8.1 Phase 1 — Upright Cross-Plane Plants
+- **Texture Generation & Atlas Orientation**:
+  paintCrossSprite(tileIdx, name, drawFn) paints to standard top-origin pixel buffer (y=0 top, y=15 bottom). Plant roots and stem bases reside at y=15, while caps, flower petals, and grass tips reside at y=1..6.
+- **Cross-Plane Geometry**:
+  createCrossPlaneGeometry() creates diagonal intersecting planes with Y bounds in [-0.5, 0.5] (height 1.0) and bottom centered at cell floor wy - 0.5. Mushrooms use height scaled to 0.62.
+- **Ground Integrity & Slash Commands**:
+  Plants only generate when y === surfaceY + 1 over solid soil (grass, dirt, forest_floor, maple_floor, needle_floor, moss). If the ground beneath is removed, the plant drops.
+  Commands /plantcheck and /spawnplants provided for audit.
+
+### 8.2 Phase 2 — Minecraft Fluid Mechanics & Zero Stray Water
+- **Orphan Prevention**:
+  FluidSimulator enforces strict loaded-chunk boundaries (isChunkLoadedAt(x, z)). Unloaded chunks are treated as impenetrable boundaries rather than open air. Unloading chunks purges queued items inside those chunks.
+- **Fluid Model**:
+  Source = level 0. Flowing water = levels 1..7 (spread 7). Flowing lava = levels 0, 2, 4, 6 (spread 3). Falling fluid is flagged and renders full height.
+- **Raycast & Bucket Rules**:
+  Standard mining & block placement ignores fluids. Placing a solid block into fluid replaces the fluid and triggers neighbor updates. Buckets (bucket_empty, bucket_water, bucket_lava) craftable via 3 iron items in V-shape.
+- **Entity Dynamics**:
+  Water slows entity descent to 2 blocks/s, reduces horizontal speed, pushes with flow gradient, cancels fall damage, and tracks 10 bubbles (15s air) with 2 HP/s drowning. Lava applies 4 HP/0.5s damage, 0.35x speed, and 15s fire burning.
+
+### 8.3 Phase 3 — Panic AI State Machine
+- reaction: 'panic' added to all non-combative animals (Pig, Cow, Sheep, Rabbit, Chicken, Cat, Bird).
+- Taking damage triggers Panic state: sprints at panicSpeedMult: 1.6 for random 6..10s, zigzagging away from damage source every 0.8..1.5s (+/-60 deg random angle), auto-jumping 1-block steps, avoiding cliffs > 3 blocks and lava pools.
+- Same-species animals within 10 blocks trigger herd alarm after 0.2..0.6s.
+- Bird takes off immediately into high-speed escape flight.
+
+### 8.4 Phase 4 — Animal Spawning Groups (Max 4)
+- Centralized in src/config/animals.js:
+  ANIMAL_GROUP_MIN = 1, ANIMAL_GROUP_MAX = 4, MAX_SAME_SPECIES_NEARBY = 4, SAME_SPECIES_RADIUS = 32.
+- Spawning trims group size so local density of the same species never exceeds 4.
+
+### 8.5 Phase 5 — 20-Minute Master Day/Night Cycle
+- Centralized in src/config/time.js:
+  DAY_LENGTH_SECONDS = 1200 (20 minutes).
+  Cycle breakdown: 50% daylight, 8% dusk, 34% night, 8% dawn.
+  All solar, lunar, star, mob burn, and weather timers strictly derive from this single constant.
+
+### 8.6 Phase 6 — Lightning Strike System
+- Centralized in src/config/lightning.js and src/weather/Lightning.js:
+  Strikes occur only in rain (thunderstorms: 8..20s, light rain: 90..180s).
+  Normalized weights: living 30 (17.6%), tree 60 (35.3%), block 80 (47.1%).
+  Player hit: 5 HP + fire. Animal hit: 20 HP + fire + herd panic. Tree hit: logs become charred_log, leaves burn away. Block hit: ground becomes scorched_ground.

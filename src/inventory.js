@@ -105,6 +105,13 @@ export const CRAFTING_RECIPES = [
     inputs: { dirt: 2, sand: 2 },
     output: { itemType: 'brick', count: 4 },
   },
+  {
+    id: 'bucket_from_iron',
+    name: 'Empty Bucket (x1)',
+    description: '3 Iron Ore -> 1 Empty Bucket',
+    inputs: { iron_ore: 3 },
+    output: { itemType: 'bucket_empty', count: 1 },
+  },
 ];
 
 export class InventorySystem {
@@ -155,12 +162,13 @@ export class InventorySystem {
   addItem(itemType, count = 1) {
     if (!itemType || count <= 0) return false;
     let remaining = count;
+    const maxStack = BLOCK_BY_ID[itemType]?.maxStack || MAX_STACK_SIZE;
 
     // Pass 1: Stack onto existing matching slots
     for (let i = 0; i < TOTAL_SLOTS && remaining > 0; i++) {
       const slot = this.slots[i];
-      if (slot && slot.itemType === itemType && slot.count < MAX_STACK_SIZE) {
-        const space = MAX_STACK_SIZE - slot.count;
+      if (slot && slot.itemType === itemType && slot.count < maxStack) {
+        const space = maxStack - slot.count;
         const toAdd = Math.min(space, remaining);
         slot.count += toAdd;
         remaining -= toAdd;
@@ -170,7 +178,7 @@ export class InventorySystem {
     // Pass 2: Place into empty slots
     for (let i = 0; i < TOTAL_SLOTS && remaining > 0; i++) {
       if (!this.slots[i]) {
-        const toAdd = Math.min(MAX_STACK_SIZE, remaining);
+        const toAdd = Math.min(maxStack, remaining);
         this.slots[i] = { itemType, count: toAdd };
         remaining -= toAdd;
       }

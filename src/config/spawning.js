@@ -2,9 +2,12 @@
 // Centralized Spawn Configuration & Day/Night Rules (Task F2)
 // ============================================================================
 
+import { TIME_CONFIG } from './time.js';
+import { ANIMAL_GROUP_MIN, ANIMAL_GROUP_MAX } from './animals.js';
+
 export const SPAWN_CONFIG = {
-  NIGHT_START: 0.55, // 55% of day cycle
-  NIGHT_END: 0.95, // 95% of day cycle
+  NIGHT_START: TIME_CONFIG.NIGHT_START, // 0.58
+  NIGHT_END: TIME_CONFIG.NIGHT_END, // 0.92
   HOSTILE_SPAWN_IN_CAVES: false, // Task F2: default FALSE (strictly night-only surface spawns)
   MIN_SPAWN_DIST: 24, // Minimum distance from player for night monsters
   MAX_SPAWN_DIST: 64, // Maximum distance from player for night monsters
@@ -15,7 +18,7 @@ export const SPAWN_CONFIG = {
   MAX_MOBS_PER_ATTEMPT: 3, // Max mobs spawned per 2-second tick
   SUNLIGHT_BURN_DPS: 4.0, // Damage per second to burning night monsters at dawn
   DAWN_DESPAWN_RATE_PER_SEC: 2.0, // Non-burning night monsters despawned per second at dawn
-  ANIMAL_GROUP_SIZE: [3, 4], // Animals always spawn in herds/flocks of 3 or 4
+  ANIMAL_GROUP_SIZE: [ANIMAL_GROUP_MIN, ANIMAL_GROUP_MAX], // Animals spawn in random groups of 1 to 4
   CAPS: {
     passive: 28,
     neutral: 6,

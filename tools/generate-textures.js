@@ -549,11 +549,16 @@ paintGrassSideTile(93, 'needle_floor_side', DIRT_PAL, NEEDLE_LOAM, 193);
 paintSeamlessRampTile(94, 'moss', ['#3b7829', '#488f33', '#55a33c', '#336923'], 194, 2);
 
 // 95..101: Undergrowth Cross-Plane Sprites (with transparent background)
-// 95: Fern (graceful branching green fronds)
+// Master Rule: Standard top-origin buffer (y=15 is plant roots/ground, y=0..2 is plant top/sky)
+
+// 95: Fern (graceful branching green fronds, widest in middle-lower, tapering at tip)
 paintCrossSprite(95, 'fern', (p) => {
-  for (let y = 1; y < 15; y++) p(7, y, '#2e6b20');
-  for (let y = 3; y < 14; y++) {
-    const spread = Math.floor((14 - y) * 0.45);
+  // Central stem from base (15) up to tip (2)
+  for (let y = 2; y <= 15; y++) p(7, y, '#2e6b20');
+  // Frond leaflets arching outward
+  for (let y = 3; y <= 14; y++) {
+    const factor = y < 9 ? (y - 2) / 7.0 : (15 - y) / 6.0;
+    const spread = Math.max(1, Math.floor(factor * 4.8));
     for (let x = 7 - spread; x <= 7 + spread; x++) {
       if (x !== 7 && (x + y) % 2 === 0) {
         p(x, y, (x % 3 === 0) ? '#489c35' : '#39822a');
@@ -562,85 +567,135 @@ paintCrossSprite(95, 'fern', (p) => {
   }
 });
 
-// 96: Tall Grass (slender waving green blades)
+// 96: Tall Grass (slender waving green blades growing up from base at y=15)
 paintCrossSprite(96, 'tall_grass_plant', (p) => {
   [4, 6, 7, 9, 11].forEach((bx, i) => {
-    const h = 8 + (i % 3) * 3;
-    for (let y = 1; y <= h; y++) {
-      const sway = Math.floor((y / h) * ((i % 2 === 0 ? 1 : -1) * 2));
-      p(bx + sway, y, y > h - 3 ? '#6bc24a' : '#4fa135');
+    const h = 8 + (i % 3) * 3; // blade height 8..14
+    for (let dy = 0; dy <= h; dy++) {
+      const y = 15 - dy; // starts at base y=15, grows up to y = 15 - h
+      const sway = Math.floor((dy / h) * ((i % 2 === 0 ? 1 : -1) * 2));
+      p(bx + sway, y, dy > h - 3 ? '#6bc24a' : '#4fa135');
     }
   });
 });
 
-// 97: Red Mushroom (spotted scarlet cap with cream stem)
+// 97: Red Mushroom (spotted scarlet cap on top, cream stem on bottom)
 paintCrossSprite(97, 'mushroom_red', (p) => {
-  // Stem
-  for (let y = 1; y <= 5; y++) {
+  // Stem (base at y=15 up to y=10)
+  for (let y = 10; y <= 15; y++) {
     p(7, y, '#ded5c5');
     p(8, y, '#e8e0d1');
   }
-  // Cap
-  for (let y = 6; y <= 11; y++) {
-    const w = (y <= 9 ? 4 : 3);
+  // Cap (y=4..9)
+  for (let y = 4; y <= 9; y++) {
+    const w = (y >= 6 ? 4 : 3);
     for (let x = 7 - w; x <= 8 + w; x++) {
       p(x, y, '#c9281a');
     }
   }
-  // White spots
-  [[5, 8], [9, 8], [7, 10], [6, 7], [10, 9]].forEach(([sx, sy]) => {
+  // White spots on cap
+  [[5, 6], [9, 6], [7, 5], [6, 8], [10, 7]].forEach(([sx, sy]) => {
     p(sx, sy, '#ffffff');
   });
 });
 
-// 98: Brown Mushroom (broad earthy tan cap with cream stem)
+// 98: Brown Mushroom (broad earthy tan cap on top, cream stem on bottom)
 paintCrossSprite(98, 'mushroom_brown', (p) => {
-  for (let y = 1; y <= 5; y++) {
+  // Stem (base at y=15 up to y=11)
+  for (let y = 11; y <= 15; y++) {
     p(7, y, '#ded5c5');
     p(8, y, '#e8e0d1');
   }
-  for (let y = 6; y <= 9; y++) {
-    const w = (y === 6 ? 5 : y === 7 ? 4 : 2);
+  // Cap (y=6..10)
+  for (let y = 6; y <= 10; y++) {
+    const w = (y === 9 ? 5 : y === 8 ? 4 : 2);
     for (let x = 7 - w; x <= 8 + w; x++) {
-      p(x, y, (y >= 8 ? '#7a5433' : '#94663d'));
+      p(x, y, (y <= 7 ? '#7a5433' : '#94663d'));
     }
   }
 });
 
-// 99: Bluebell (graceful bell-shaped violet-blue woodland flower)
+// 99: Bluebell (woodland flower: stem from y=15 to y=6, bell blossom at y=3..7)
 paintCrossSprite(99, 'flower_bluebell', (p) => {
-  for (let y = 1; y <= 12; y++) p(7, y, '#38822d');
-  [[5, 9], [6, 9], [5, 10], [6, 10], [8, 11], [9, 11], [8, 12], [9, 12]].forEach(([bx, by]) => {
+  for (let y = 6; y <= 15; y++) p(7, y, '#38822d');
+  [[5, 4], [6, 4], [5, 5], [6, 5], [8, 6], [9, 6], [8, 7], [9, 7]].forEach(([bx, by]) => {
     p(bx, by, '#4f6be8');
   });
-  p(5, 8, '#708bff');
-  p(9, 10, '#708bff');
+  p(5, 3, '#708bff');
+  p(9, 5, '#708bff');
 });
 
-// 100: Violet (delicate woodland violet)
+// 100: Violet (stem from y=15 to y=8, petals at y=3..7)
 paintCrossSprite(100, 'flower_violet', (p) => {
-  for (let y = 1; y <= 8; y++) p(7, y, '#38822d');
+  for (let y = 7; y <= 15; y++) p(7, y, '#38822d');
   for (let x = 5; x <= 9; x++) {
-    for (let y = 8; y <= 12; y++) {
-      if (Math.abs(x - 7) + Math.abs(y - 10) <= 2) {
+    for (let y = 3; y <= 7; y++) {
+      if (Math.abs(x - 7) + Math.abs(y - 5) <= 2) {
         p(x, y, '#8c3adb');
       }
     }
   }
-  p(7, 10, '#fadb38'); // yellow center
+  p(7, 5, '#fadb38'); // yellow center
 });
 
-// 101: Anemone / Wood Anemone (white star flower)
+// 101: Anemone (stem from y=15 to y=7, star petals at y=2..6)
 paintCrossSprite(101, 'flower_anemone', (p) => {
-  for (let y = 1; y <= 9; y++) p(7, y, '#38822d');
+  for (let y = 6; y <= 15; y++) p(7, y, '#38822d');
   for (let x = 5; x <= 9; x++) {
-    for (let y = 9; y <= 13; y++) {
-      if ((x === 7 || y === 11) || Math.abs(x - 7) === Math.abs(y - 11)) {
+    for (let y = 2; y <= 6; y++) {
+      if ((x === 7 || y === 4) || Math.abs(x - 7) === Math.abs(y - 4)) {
         p(x, y, '#f7f7f7');
       }
     }
   }
-  p(7, 11, '#e6b82e'); // golden center
+  p(7, 4, '#e6b82e'); // golden center
+});
+
+// 102..104: Charred Wood & Scorched Ground (Lightning / Fire)
+paintLogTopTile(102, 'log_charred_top', '#121212', '#222222', '#1a1a1a');
+paintTreeBarkTile(103, 'log_charred_side', ['#0f0f0f', '#1c1c1c', '#292929', '#080808'], 203, false);
+paintSeamlessRampTile(104, 'scorched_ground', ['#181512', '#241f1a', '#2c251f', '#0f0d0b'], 204, 2);
+
+// 105..107: Buckets (Empty, Water, Lava)
+paintCrossSprite(105, 'bucket_empty', (p) => {
+  for (let x = 5; x <= 10; x++) p(x, 3, '#94a3b8');
+  p(4, 4, '#94a3b8'); p(11, 4, '#94a3b8');
+  for (let x = 3; x <= 12; x++) p(x, 5, '#cbd5e1');
+  for (let y = 6; y <= 12; y++) {
+    const inset = Math.floor((y - 5) * 0.28);
+    for (let x = 3 + inset; x <= 12 - inset; x++) {
+      const isEdge = x === 3 + inset || x === 12 - inset || y === 12;
+      p(x, y, isEdge ? '#64748b' : '#94a3b8');
+    }
+  }
+});
+
+paintCrossSprite(106, 'bucket_water', (p) => {
+  for (let x = 5; x <= 10; x++) p(x, 3, '#94a3b8');
+  p(4, 4, '#94a3b8'); p(11, 4, '#94a3b8');
+  for (let x = 3; x <= 12; x++) p(x, 5, '#cbd5e1');
+  for (let y = 6; y <= 12; y++) {
+    const inset = Math.floor((y - 5) * 0.28);
+    for (let x = 3 + inset; x <= 12 - inset; x++) {
+      const isEdge = x === 3 + inset || x === 12 - inset || y === 12;
+      p(x, y, isEdge ? '#64748b' : (y <= 8 ? '#3b82f6' : '#2563eb'));
+    }
+  }
+  p(6, 6, '#93c5fd'); p(8, 7, '#60a5fa');
+});
+
+paintCrossSprite(107, 'bucket_lava', (p) => {
+  for (let x = 5; x <= 10; x++) p(x, 3, '#94a3b8');
+  p(4, 4, '#94a3b8'); p(11, 4, '#94a3b8');
+  for (let x = 3; x <= 12; x++) p(x, 5, '#cbd5e1');
+  for (let y = 6; y <= 12; y++) {
+    const inset = Math.floor((y - 5) * 0.28);
+    for (let x = 3 + inset; x <= 12 - inset; x++) {
+      const isEdge = x === 3 + inset || x === 12 - inset || y === 12;
+      p(x, y, isEdge ? '#64748b' : (y <= 8 ? '#facc15' : '#ea580c'));
+    }
+  }
+  p(7, 6, '#fef08a'); p(9, 7, '#f97316');
 });
 
 

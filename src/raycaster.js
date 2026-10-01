@@ -36,8 +36,10 @@ export function raycastVoxelDDA(
   world,
   origin,
   direction,
-  maxDistance = MAX_REACH_DISTANCE
+  maxDistance = MAX_REACH_DISTANCE,
+  options = {}
 ) {
+  const { ignoreFluids = true, targetFluids = false } = options;
   const dir = direction.clone().normalize();
 
   // Shift origin by +0.5 so block at (x,y,z) spans [x, x+1) in grid space
@@ -81,12 +83,36 @@ export function raycastVoxelDDA(
     }
 
     const blockType = world.getBlock(vx, vy, vz);
-    if (blockType) {
+    const fluid = world.getFluid ? world.getFluid(vx, vy, vz) : null;
+    const isFluid = blockType === 'water' || blockType === 'lava' || Boolean(fluid);
+
+    if (isFluid) {
+      if (targetFluids) {
+        return {
+          x: vx,
+          y: vy,
+          z: vz,
+          blockType: blockType || fluid?.type || 'water',
+          fluid,
+          isFluid: true,
+          normal: { ...normal },
+          faceName: getFaceName(normal),
+          distance,
+          adjacent: {
+            x: vx + normal.x,
+            y: vy + normal.y,
+            z: vz + normal.z,
+          },
+        };
+      }
+      // If ignoreFluids is true, skip fluid voxel and continue stepping
+    } else if (blockType) {
       return {
         x: vx,
         y: vy,
         z: vz,
         blockType,
+        isFluid: false,
         normal: { ...normal },
         faceName: getFaceName(normal),
         distance,

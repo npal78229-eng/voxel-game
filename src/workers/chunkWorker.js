@@ -139,7 +139,27 @@ self.onmessage = (event) => {
     const isTrans = Boolean(def && def.transparent);
 
     if (isPlant) {
-      plantEntries.push([wx, wy, wz, blockType]);
+      // Phase 1 Ground Check: Only mesh plant if cell below has valid solid ground and cell has no water
+      const belowKey = coordKey(wx, wy - 1, wz);
+      const belowType = blocks.get(belowKey) || diffMap.get(belowKey) || noise.getNaturalBlockAt(wx, wy - 1, wz);
+      const isGroundValid = Boolean(
+        belowType &&
+        belowType !== 'water' &&
+        belowType !== 'lava' &&
+        belowType !== 'air' &&
+        !BLOCK_BY_ID[belowType]?.isPlant &&
+        (belowType === 'grass' ||
+          belowType === 'dirt' ||
+          belowType === 'forest_floor' ||
+          belowType === 'maple_floor' ||
+          belowType === 'needle_floor' ||
+          belowType === 'moss' ||
+          belowType === 'mossy_cobble' ||
+          (blockType.startsWith('mushroom') && (belowType === 'stone' || belowType === 'dirt' || belowType === 'grass')))
+      );
+      if (isGroundValid) {
+        plantEntries.push([wx, wy, wz, blockType]);
+      }
       continue;
     }
 

@@ -61,7 +61,21 @@ export class FluidSimulator {
     }
   }
 
+  isChunkLoaded(x, z) {
+    if (typeof this.world?.isChunkLoadedAt === 'function') {
+      return this.world.isChunkLoadedAt(x, z);
+    }
+    return true; // fallback for unit tests with mock world
+  }
+
   isSolid(x, y, z) {
+    if (!this.isChunkLoaded(x, z)) {
+      if (typeof this.world?.noise?.getNaturalBlockAt === 'function') {
+        const nat = this.world.noise.getNaturalBlockAt(x, y, z);
+        return Boolean(nat && nat !== 'water' && nat !== 'lava');
+      }
+      return true; // Treat unloaded chunks as solid boundary so fluids never spill
+    }
     if (typeof this.world?.isSolidAt === 'function') {
       return this.world.isSolidAt(x, y, z);
     }
@@ -73,6 +87,7 @@ export class FluidSimulator {
   }
 
   isAirOrReplaceable(x, y, z) {
+    if (!this.isChunkLoaded(x, z)) return false; // Unloaded chunks are NEVER treated as air!
     if (typeof this.world?.isAirOrReplaceable === 'function') {
       return this.world.isAirOrReplaceable(x, y, z);
     }
@@ -80,7 +95,17 @@ export class FluidSimulator {
       const b = this.world.getBlock(x, y, z);
       if (!b) return true;
       if (b === 'water' || b === 'lava') return false;
-      const replaceable = ['tall_grass', 'flower_red', 'flower_yellow', 'flower_blue', 'torch'];
+      const replaceable = [
+        'tall_grass',
+        'tall_grass_plant',
+        'fern',
+        'mushroom_red',
+        'mushroom_brown',
+        'flower_bluebell',
+        'flower_violet',
+        'flower_anemone',
+        'torch',
+      ];
       return replaceable.includes(b);
     }
     return true;
@@ -526,5 +551,130 @@ export class FluidSimulator {
         }
       }
     }
+  }
+
+  onChunkUnloaded(chunkX, chunkZ, chunkSize = 16) {
+    const minX = chunkX * chunkSize;
+    const maxX = minX + chunkSize - 1;
+    const minZ = chunkZ * chunkSize;
+    const maxZ = minZ + chunkSize - 1;
+
+    // Purge queued updates in this chunk
+    this.queue = this.queue.filter((item) => {
+      const inside = item.x >= minX && item.x <= maxX && item.z >= minZ && item.z <= maxZ;
+      if (inside) {
+        this.queuedKeys.delete(this.coordKey(item.x, item.y, item.z));
+      }
+      return !inside;
+    });
+
+    // Remove any transient flowing fluids in this chunk
+    for (const [key, f] of this.fluids.entries()) {
+      const { x, z } = this.parseKey(key);
+      if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) {
+        if (f.level > 0 || f.falling) {
+          this.fluids.delete(key);
+        }
+      }
+    }
+  }
+
+  checkAndCleanOrphans() {
+    let orphansRemoved = 0;
+    const orphanKeys = [];
+
+    // Scan all active fluids in loaded chunks
+    for (const [key, f] of this.fluids.entries()) {
+      if (f.level === 0 && !f.falling) continue; // Source block is not an orphan
+      const { x, y, z } = this.parseKey(key);
+      if (!this.isChunkLoaded(x, z)) continue;
+
+      if (f.falling) {
+        // Falling fluid must have fluid of same type directly above it (either source or falling)
+        const above = this.getFluid(x, y + 1, z);
+        if (!above || above.type !== f.type) {
+          orphanKeys.push(key);
+        }
+      } else {
+        // Flowing fluid must have a supplying neighbor with strictly lower level
+        let hasSupplier = false;
+        const above = this.getFluid(x, y + 1, z);
+        if (above && above.type === f.type) {
+          hasSupplier = true;
+        } else {
+          const horiz = [
+            [x + 1, y, z],
+            [x - 1, y, z],
+            [x, y, z + 1],
+            [x, y, z - 1],
+          ];
+          for (const [hx, hy, hz] of horiz) {
+            const hf = this.getFluid(hx, hy, hz);
+            if (hf && hf.type === f.type) {
+              const effLevel = hf.falling ? 0 : hf.level;
+              if (effLevel < f.level) {
+                hasSupplier = true;
+                break;
+              }
+            }
+          }
+        }
+        if (!hasSupplier) {
+          orphanKeys.push(key);
+        }
+      }
+    }
+
+    // Also scan chunk.fluids in all loaded chunks
+    if (this.world && this.world.chunks) {
+      for (const chunk of this.world.chunks.values()) {
+        if (!chunk.fluids) continue;
+        for (const [key, f] of chunk.fluids.entries()) {
+          if (f.level === 0 && !f.falling) continue;
+          const [wx, wy, wz] = key.split(',').map(Number);
+          if (f.falling) {
+            const above = this.getFluid(wx, wy + 1, wz);
+            if (!above || above.type !== f.type) {
+              orphanKeys.push(key);
+            }
+          } else {
+            let hasSupplier = false;
+            const above = this.getFluid(wx, wy + 1, wz);
+            if (above && above.type === f.type) {
+              hasSupplier = true;
+            } else {
+              const horiz = [
+                [wx + 1, wy, wz],
+                [wx - 1, wy, wz],
+                [wx, wy, wz + 1],
+                [wx, wy, wz - 1],
+              ];
+              for (const [hx, hy, hz] of horiz) {
+                const hf = this.getFluid(hx, hy, hz);
+                if (hf && hf.type === f.type) {
+                  const effLevel = hf.falling ? 0 : hf.level;
+                  if (effLevel < f.level) {
+                    hasSupplier = true;
+                    break;
+                  }
+                }
+              }
+            }
+            if (!hasSupplier) {
+              orphanKeys.push(key);
+            }
+          }
+        }
+      }
+    }
+
+    const uniqueOrphans = Array.from(new Set(orphanKeys));
+    for (const key of uniqueOrphans) {
+      const [x, y, z] = key.split(',').map(Number);
+      this.removeFluid(x, y, z);
+      orphansRemoved++;
+    }
+
+    return orphansRemoved;
   }
 }

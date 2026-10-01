@@ -21,6 +21,7 @@ import {
 import { TERRAIN_CONFIG, SEA_LEVEL, getBiome, BIOME_TABLE } from './noise.js';
 import { climateSystem } from './climate/ClimateSystem.js';
 import { FLUID_CONFIG } from './config/fluids.js';
+import { LightningSystem } from './weather/Lightning.js';
 
 // ============================================================================
 // Voxel Realms v2.0 — Complete Upgrade Suite (Phases U0–U7)
@@ -107,6 +108,7 @@ import { PlayerStatusEffects } from './statusEffects.js';
 const sfx = new SoundEffectsManager();
 const particles = new BlockBreakParticles(scene);
 const mobs = new PassiveMobManager(scene, world, sfx, particles);
+const lightning = new LightningSystem(scene, world, mobs, sfx);
 
 // 9. PLAYER HEALTH (10 Hearts = 20 HP) & HUNGER (10 Pips = 20) (Phase U5.6 & Task F1)
 const playerStats = {
@@ -478,13 +480,67 @@ function executeConsoleCommand(cmdStr) {
   const cmd = (parts[0] || '').toLowerCase();
 
   if (cmd === 'time') {
-    const sub = (parts[2] || parts[1] || 'day').toLowerCase();
-    dayNight.timeOfDay =
-      sub === 'night' ? 0.72 : sub === 'sunset' ? 0.52 : 0.25;
+    const sub = (parts[1] === 'set' ? parts[2] : (parts[2] || parts[1] || 'day')).toLowerCase();
+    let targetT = 0.15;
+    if (sub === 'noon') targetT = 0.25;
+    else if (sub === 'dusk' || sub === 'sunset') targetT = 0.52;
+    else if (sub === 'night') targetT = 0.65;
+    else if (sub === 'midnight') targetT = 0.75;
+    else if (sub === 'dawn' || sub === 'sunrise') targetT = 0.95;
+    else if (sub === 'day') targetT = 0.15;
+    else if (!isNaN(Number(sub))) targetT = ((Number(sub) % 1) + 1) % 1;
+
+    dayNight.timeOfDay = targetT;
+    if (dayNight.climate) dayNight.climate.timeOfDay = targetT;
     if (!dayNight.isNight()) {
       mobs.cleanupDaytimeSavedMonsters(controls.playerPosition, false);
     }
-    showToast(`Time set to ${sub} | ${dayNight.getDebugReadout()}`, 4200);
+    showToast(`Time set to ${sub} (${(targetT * 100).toFixed(0)}%) | ${dayNight.getDebugReadout()}`, 4500);
+  } else if (cmd === 'timespeed') {
+    const speed = Number(parts[1]) || 1.0;
+    if (dayNight.climate) dayNight.climate.timeScale = speed;
+    dayNight.timeScale = speed;
+    showToast(`Time speed set to ${speed}x (standard: 1.0x = 20-min day)`);
+  } else if (cmd === 'mobdebug') {
+    const arg = (parts[1] || '').toLowerCase();
+    const state = arg === 'on' ? true : arg === 'off' ? false : !mobs.debugViewEnabled;
+    mobs.toggleDebugView(state);
+    showToast(`Mob Debug ${mobs.debugViewEnabled ? 'ENABLED [Panic telemetry visible]' : 'DISABLED'}`);
+  } else if (cmd === 'spawntest') {
+    const species = parts[1] || 'Pig';
+    const n = Number(parts[2]) || 10;
+    if (n > 100) {
+      let sum = 0;
+      const dist = { 1: 0, 2: 0, 3: 0, 4: 0 };
+      for (let i = 0; i < n; i++) {
+        const roll = Math.floor(Math.random() * 4) + 1;
+        dist[roll]++;
+        sum += roll;
+      }
+      console.table(dist);
+      const nearby = mobs.countNearbySameSpecies(species, controls.playerPosition.x, controls.playerPosition.z, 32);
+      showToast(`[SpawnTest ${n} rolls] Avg: ${(sum/n).toFixed(2)} | 1:${dist[1]} 2:${dist[2]} 3:${dist[3]} 4:${dist[4]} | Nearby: ${nearby}/4`, 6000);
+    } else {
+      const nearby = mobs.countNearbySameSpecies(species, controls.playerPosition.x, controls.playerPosition.z, 32);
+      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      const tx = controls.playerPosition.x + forward.x * 5.0;
+      const tz = controls.playerPosition.z + forward.z * 5.0;
+      const list = mobs.spawnMobGroup(species, tx, tz, n, true);
+      showToast(`[SpawnTest] Attempted ${n}x ${species}: spawned ${list.length} (nearby existing: ${nearby}, cap: 4)`, 5000);
+    }
+  } else if (cmd === 'lightning') {
+    const targetArg = parts[1] ? parts[1].toLowerCase() : null;
+    const res = lightning.triggerStrike(targetArg, controls.playerPosition, (dmg, src, opts) => applyPlayerDamage(dmg, src, opts));
+    showToast(`[Lightning] Struck ${res.targetType} at ${res.distance.toFixed(1)}m (thunder delay: ${res.thunderDelay.toFixed(2)}s)`);
+  } else if (cmd === 'lightningstats') {
+    const n = Number(parts[1]) || 10000;
+    const stats = lightning.simulateTargetRolls(n);
+    console.table(stats);
+    showToast(`[LightningStats ${n} rolls] Living: ${stats.living.pct}% (~17.6%) | Tree: ${stats.tree.pct}% (~35.3%) | Block: ${stats.block.pct}% (~47.1%)`, 6500);
+  } else if (cmd === 'lightningdebug') {
+    const arg = (parts[1] || '').toLowerCase();
+    lightning.debugEnabled = arg === 'on' ? true : arg === 'off' ? false : !lightning.debugEnabled;
+    showToast(`Lightning Debug ${lightning.debugEnabled ? 'ENABLED' : 'DISABLED'}`);
   } else if (cmd === 'testrange') {
     // Task F1: Spawn one melee mob 3 blocks from player and enable F4 debug ring
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -520,7 +576,8 @@ function executeConsoleCommand(cmdStr) {
       6500
     );
   } else if (cmd === 'weather') {
-    const w = (parts[1] || 'clear').toLowerCase();
+    let w = (parts[1] || 'clear').toLowerCase();
+    if (w === 'storm') w = 'thunderstorm';
     dayNight.setWeather(w);
     showToast(`Weather set to ${dayNight.weather}`);
   } else if (cmd === 'gamemode') {
@@ -531,9 +588,21 @@ function executeConsoleCommand(cmdStr) {
     let item = (parts[1] || 'gem_ore').toLowerCase();
     if (item === 'water_source') item = 'water';
     if (item === 'lava_source') item = 'lava';
-    const count = Number(parts[2]) || 16;
+    const isSingle = item.startsWith('bucket');
+    const count = Number(parts[2]) || (isSingle ? 1 : 16);
     inventory.addItem(item, count);
     showToast(`Added ${count}x ${item} to inventory`);
+  } else if (cmd === 'fluidcheck') {
+    let orphans = 0;
+    if (world.fluidSimulator) {
+      orphans = world.fluidSimulator.checkAndCleanOrphans();
+      if (world.chunks) {
+        for (const chunk of world.chunks.values()) {
+          chunk.rebuildFluidMeshes();
+        }
+      }
+    }
+    showToast(`[FluidCheck] Scanned loaded chunks. Found & removed ${orphans} orphan fluid blocks.`, 5000);
   } else if (cmd === 'fluidstats') {
     const sim = world.fluidSimulator;
     const stats = {
@@ -576,6 +645,60 @@ function executeConsoleCommand(cmdStr) {
     );
     world.reloadAllChunks(controls.playerPosition);
     showToast(`Teleported to (${parts[1]}, ${parts[2]}, ${parts[3]})`);
+  } else if (cmd === 'plantcheck') {
+    let scanned = 0;
+    let invalidCount = 0;
+    const affectedChunks = new Set();
+    const VALID_SOILS = new Set(['grass', 'dirt', 'forest_floor', 'maple_floor', 'needle_floor', 'moss', 'mossy_cobble']);
+
+    for (const chunk of world.chunks.values()) {
+      for (const [key, blockType] of chunk.blocks.entries()) {
+        const def = BLOCK_BY_ID[blockType];
+        if (def && def.isPlant) {
+          scanned++;
+          const [wx, wy, wz] = key.split(',').map(Number);
+          const below = world.getBlock(wx, wy - 1, wz);
+          const isMushroom = blockType.startsWith('mushroom');
+          const isValidGround = below && (VALID_SOILS.has(below) || (isMushroom && below === 'stone'));
+          const hasWater = chunk.blocks.get(key) === 'water' || world.getFluid(wx, wy, wz) !== null;
+
+          if (!isValidGround || hasWater) {
+            invalidCount++;
+            chunk.blocks.delete(key);
+            world.modifiedBlocks.set(key, null);
+            affectedChunks.add(chunk);
+          }
+        }
+      }
+    }
+    for (const ch of affectedChunks) {
+      ch.rebuildMesh();
+    }
+    showToast(`[PlantCheck] Scanned ${scanned} plants. Found & removed ${invalidCount} invalid plants.`, 5000);
+  } else if (cmd === 'spawnplants') {
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).setY(0).normalize();
+    const right = new THREE.Vector3(-forward.z, 0, forward.x);
+    const baseX = Math.floor(controls.playerPosition.x + forward.x * 4.0);
+    const baseZ = Math.floor(controls.playerPosition.z + forward.z * 4.0);
+    const baseY = Math.floor(controls.playerPosition.y);
+
+    const plantList = [
+      'fern',
+      'tall_grass_plant',
+      'mushroom_red',
+      'mushroom_brown',
+      'flower_bluebell',
+      'flower_violet',
+      'flower_anemone',
+    ];
+
+    for (let i = 0; i < plantList.length; i++) {
+      const px = baseX + Math.round(right.x * (i - 3) * 1.5);
+      const pz = baseZ + Math.round(right.z * (i - 3) * 1.5);
+      world.setBlock(px, baseY - 1, pz, i >= 2 && i <= 3 ? 'dirt' : 'grass');
+      world.setBlock(px, baseY, pz, plantList[i]);
+    }
+    showToast(`Spawned row of ${plantList.length} plants ahead! Inspect their upright orientation.`, 5000);
   } else if (cmd === 'gallery') {
     // Task F6: Build 36-Block Gallery Showcase Grid in front of the player
     const info = world.buildBlockGallery(
@@ -885,8 +1008,8 @@ renderer.domElement.addEventListener('mousedown', (event) => {
       return;
     }
 
-    // 2. Otherwise mine targeted block
-    if (!currentHit) return;
+    // 2. Otherwise mine targeted block (Mining ignores fluids: never mine water or lava!)
+    if (!currentHit || currentHit.isFluid || currentHit.blockType === 'water' || currentHit.blockType === 'lava') return;
     const brokenBlockType = currentHit.blockType;
     const { x, y, z } = currentHit;
     const removed = world.removeBlock(x, y, z);
@@ -896,10 +1019,64 @@ renderer.domElement.addEventListener('mousedown', (event) => {
       particles.spawnBurst(x, y, z, brokenBlockType);
     }
   } else if (event.button === 2) {
+    const activeStack = ui.getSelectedStack();
+    const heldItem = activeStack ? activeStack.itemType : null;
+
+    // Bucket Pickup (Empty Bucket right-clicked on fluid source)
+    if (heldItem === 'bucket_empty') {
+      const fluidHit = raycastVoxelDDA(world, controls.playerPosition, lookDirection, 6.0, { ignoreFluids: false, targetFluids: true });
+      if (fluidHit && fluidHit.isFluid) {
+        const fluid = world.getFluid(fluidHit.x, fluidHit.y, fluidHit.z);
+        if (fluid && fluid.level === 0) {
+          world.removeFluid(fluidHit.x, fluidHit.y, fluidHit.z);
+          const chunk = world.getChunkAtWorld(fluidHit.x, fluidHit.z);
+          if (chunk) {
+            const key = world.coordKey(fluidHit.x, fluidHit.y, fluidHit.z);
+            if (chunk.blocks.get(key) === fluid.type) {
+              world.modifiedBlocks.set(key, null);
+              chunk.blocks.delete(key);
+              chunk.rebuildMesh();
+            }
+          }
+          if (world.fluidSimulator) {
+            world.fluidSimulator.removeSource(fluidHit.x, fluidHit.y, fluidHit.z);
+          }
+          const filledBucket = fluid.type === 'lava' ? 'bucket_lava' : 'bucket_water';
+          inventory.consumeHotbarSlot(ui.selectedIndex);
+          inventory.slots[ui.selectedIndex] = { itemType: filledBucket, count: 1 };
+          inventory._notify();
+          sfx.playPlace();
+          showToast(`Scooped ${fluid.type} source!`);
+          return;
+        }
+      }
+      return;
+    }
+
+    // Bucket Placement (Water/Lava Bucket right-clicked on ground or face)
+    if (heldItem === 'bucket_water' || heldItem === 'bucket_lava') {
+      const fluidType = heldItem === 'bucket_lava' ? 'lava' : 'water';
+      if (currentHit) {
+        const { x: adjX, y: adjY, z: adjZ } = currentHit.adjacent;
+        if (!world.wouldOverlapPlayer(adjX, adjY, adjZ, controls.playerPosition)) {
+          if (world.fluidSimulator) {
+            world.fluidSimulator.addSource(adjX, adjY, adjZ, fluidType);
+          }
+          inventory.consumeHotbarSlot(ui.selectedIndex);
+          inventory.slots[ui.selectedIndex] = { itemType: 'bucket_empty', count: 1 };
+          inventory._notify();
+          sfx.playPlace();
+          showToast(`Placed ${fluidType} source!`);
+          return;
+        }
+      }
+      return;
+    }
+
+    // Solid Block Placement (Replaces fluid if placed inside fluid cell)
     if (!currentHit) return;
     const { x: adjX, y: adjY, z: adjZ } = currentHit.adjacent;
     if (!world.wouldOverlapPlayer(adjX, adjY, adjZ, controls.playerPosition)) {
-      const activeStack = ui.getSelectedStack();
       if (activeStack && activeStack.count > 0) {
         const placedType = inventory.consumeHotbarSlot(ui.selectedIndex);
         if (placedType) {
@@ -991,6 +1168,7 @@ function animate() {
     ? world.getBiomeAt(controls.playerPosition.x, controls.playerPosition.z)
     : null;
   dayNight.update(deltaTime, controls.playerPosition, currentBiome);
+  lightning.update(deltaTime, controls.playerPosition, dayNight.weather, (dmg, src, opts) => applyPlayerDamage(dmg, src, opts));
 
   // Job 2: Submerged camera fog color & density override
   if (scene.fog) {

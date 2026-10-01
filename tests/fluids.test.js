@@ -315,6 +315,45 @@ check('Scenario 7: Removing source makes flow retreat and disappear', () => {
   return 'All flowing fluid retreated and 0 fluid blocks remained';
 });
 
+// ----------------------------------------------------------------------------
+// Scenario 8: Negative chunk coordinates (-1, -1) and orphan cleaning.
+// ----------------------------------------------------------------------------
+check('Scenario 8: Negative chunk coordinates (-1, -1) and orphan cleaner', () => {
+  const world = new MockWorld();
+  // Floor in chunk (-1, -1): x in [-24, -8], z in [-24, -8]
+  for (let x = -24; x <= -8; x++) {
+    for (let z = -24; z <= -8; z++) {
+      world.setBlock(x, 0, z, 'stone');
+    }
+  }
+
+  const sim = new FluidSimulator(world, FLUID_CONFIG);
+  // Source at (-16, 1, -16) in chunk (-1, -1)
+  sim.addSource(-16, 1, -16, 'water');
+  runUntilSettled(sim);
+
+  const src = sim.getFluid(-16, 1, -16);
+  assert(src && src.level === 0, 'Source in negative coords must be level 0');
+
+  // Verify spread in negative coordinates
+  for (let dx = 1; dx <= 7; dx++) {
+    const f = sim.getFluid(-16 + dx, 1, -16);
+    assert(f !== null, `Expected water at x = ${-16 + dx}`);
+    assert.equal(f.level, dx, `Expected level ${dx} at x = ${-16 + dx}`);
+  }
+  assert.equal(sim.getFluid(-16 + 8, 1, -16), null, 'Water must not spread past 7 blocks in negative coords');
+
+  // Test orphan cleaner: inject an orphan floating fluid block at (-20, 5, -20)
+  sim.setFluid(-20, 5, -20, { type: 'water', level: 3, falling: false });
+  assert(sim.getFluid(-20, 5, -20) !== null, 'Orphan should exist before cleaning');
+
+  const removedCount = sim.checkAndCleanOrphans();
+  assert(removedCount >= 1, 'Orphan cleaner should have removed the unsupplied fluid');
+  assert.equal(sim.getFluid(-20, 5, -20), null, 'Orphan fluid should be deleted');
+
+  return 'Negative coordinates (-1, -1) spread accurately & orphan cleaner cleared stray fluid';
+});
+
 console.log(`\n====================================================================`);
 console.log(` FLUID TESTS RESULT: ${passed} PASSED, ${failed} FAILED`);
 console.log(`====================================================================\n`);

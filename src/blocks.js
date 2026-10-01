@@ -107,6 +107,12 @@ export const ATLAS_TILE_INDEX = {
   flower_bluebell: 99,
   flower_violet: 100,
   flower_anemone: 101,
+  log_charred_top: 102,
+  log_charred_side: 103,
+  scorched_ground: 104,
+  bucket_empty: 105,
+  bucket_water: 106,
+  bucket_lava: 107,
 };
 
 const T = ATLAS_TILE_INDEX;
@@ -991,6 +997,82 @@ export const BLOCK_DEFINITIONS = [
     isPlant: true,
     lightLevel: 0,
   },
+  {
+    id: 'charred_log',
+    name: 'Charred Log',
+    key: 0,
+    colorHex: '#141414',
+    sideHex: '#0f0f0f',
+    bottomHex: '#141414',
+    color: new THREE.Color('#ffffff'),
+    tiles: { top: T.log_charred_top, side: T.log_charred_side, bottom: T.log_charred_top },
+    hardness: 1.5,
+    transparent: false,
+    solid: true,
+    lightLevel: 1,
+  },
+  {
+    id: 'scorched_ground',
+    name: 'Scorched Ground',
+    key: 0,
+    colorHex: '#1c1917',
+    sideHex: '#1c1917',
+    bottomHex: '#1c1917',
+    color: new THREE.Color('#ffffff'),
+    tiles: { top: T.scorched_ground, side: T.scorched_ground, bottom: T.scorched_ground },
+    hardness: 0.6,
+    transparent: false,
+    solid: true,
+    lightLevel: 0,
+  },
+  {
+    id: 'bucket_empty',
+    name: 'Empty Bucket',
+    key: 0,
+    colorHex: '#94a3b8',
+    sideHex: '#94a3b8',
+    bottomHex: '#94a3b8',
+    color: new THREE.Color('#ffffff'),
+    tiles: { top: T.bucket_empty, side: T.bucket_empty, bottom: T.bucket_empty },
+    hardness: 0.1,
+    transparent: true,
+    solid: false,
+    isItem: true,
+    maxStack: 1,
+    lightLevel: 0,
+  },
+  {
+    id: 'bucket_water',
+    name: 'Water Bucket',
+    key: 0,
+    colorHex: '#3b82f6',
+    sideHex: '#3b82f6',
+    bottomHex: '#3b82f6',
+    color: new THREE.Color('#ffffff'),
+    tiles: { top: T.bucket_water, side: T.bucket_water, bottom: T.bucket_water },
+    hardness: 0.1,
+    transparent: true,
+    solid: false,
+    isItem: true,
+    maxStack: 1,
+    lightLevel: 0,
+  },
+  {
+    id: 'bucket_lava',
+    name: 'Lava Bucket',
+    key: 0,
+    colorHex: '#ea580c',
+    sideHex: '#ea580c',
+    bottomHex: '#ea580c',
+    color: new THREE.Color('#ffffff'),
+    tiles: { top: T.bucket_lava, side: T.bucket_lava, bottom: T.bucket_lava },
+    hardness: 0.1,
+    transparent: true,
+    solid: false,
+    isItem: true,
+    maxStack: 1,
+    lightLevel: 8,
+  },
 ];
 
 export const BLOCK_BY_ID = Object.fromEntries(
@@ -1015,6 +1097,8 @@ BLOCK_BY_ID.dark_oak_leaves = BLOCK_BY_ID.leaves_darkoak;
 BLOCK_BY_ID.maple_leaves = BLOCK_BY_ID.leaves_maple_red;
 BLOCK_BY_ID.leaves_maple = BLOCK_BY_ID.leaves_maple_red;
 BLOCK_BY_ID.redwood_leaves = BLOCK_BY_ID.leaves_redwood;
+BLOCK_BY_ID.water_source = BLOCK_BY_ID.water;
+BLOCK_BY_ID.lava_source = BLOCK_BY_ID.lava;
 
 
 const iconCache = new Map();

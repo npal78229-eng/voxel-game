@@ -84,17 +84,22 @@ voxel-game/
 │   │       └── SoulBeamAttack.js    # Channeled 50% HP non-lethal soul drain beam
 │   ├── config/
 │   │   ├── animalClimate.js         # Animal climate thresholds, huddle radiuses & sleep schedules
+│   │   ├── animals.js               # Centralized animal spawn groups (1..4) and nearby density caps (max 4 within 32m)
 │   │   ├── blocks.js                # Block properties, transparent flags, hardness & drops
 │   │   ├── caves.js                 # 3D Simplex cave thresholds & worm tunnels
 │   │   ├── climate.js               # Season calendar, day-length shifts, weather transition matrix
 │   │   ├── fluids.js                # Fluid viscosity, tick rates, spread limits & thermic reactions
-│   │   ├── mobs.js                  # Mob stats, bounding boxes, loot tables & spawn rules
+│   │   ├── lightning.js             # Strike frequencies (8..20s / 90..180s) and target weights (30/60/80)
+│   │   ├── mobs.js                  # Mob stats, reaction behavior, panic multipliers & hitboxes
 │   │   ├── ores.js                  # Depth-stratified ore vein distribution
 │   │   ├── spawning.js              # Mob population caps & spawn weightings
+│   │   ├── time.js                  # 20-minute master day/night cycle & normalized cycle boundaries
 │   │   └── trees.js                 # Dark Oak (2x2), Autumn Maple & Giant Redwood (40m) procedural models
 │   ├── fluids/
 │   │   ├── FluidSimulator.js        # Discrete cellular automaton water & lava spread engine
 │   │   └── FluidMesher.js           # Dynamic quad mesher with 4-corner height interpolation & animated strips
+│   ├── weather/
+│   │   └── Lightning.js             # Natural lightning simulator, 3D visual bolt, delayed audio & terrain charring
 │   ├── workers/
 │   │   └── chunkWorker.js           # Multi-threaded terrain noise, 13 biomes, exposure culling & AO
 │   ├── BlenderMobs.js               # Articulated 3D mob rigs, procedural animation mixers & limb kinematics
@@ -359,27 +364,33 @@ Press **`/`** during gameplay to open the command console and run any of the fol
 ### 🌊 Fluid & Liquid Physics Commands
 | Command | Example | Description |
 | :--- | :--- | :--- |
+| `/fluidcheck` | `/fluidcheck` | Scans all loaded chunks and removes orphan fluid blocks lacking valid parent chunks |
 | `/fluidstats` | `/fluidstats` | Displays active flowing fluid blocks, queued updates, sim execution time, and pending remesh chunks |
 | `/fluidtick <n>` | `/fluidtick 5` | Manually steps the fluid simulator by `n` ticks and triggers instant chunk re-meshing |
 | `/fluiddebug <on\|off>` | `/fluiddebug on` | Toggles detailed fluid physics console telemetry and update logging |
 
-### ⛅ Climate, Season & Weather Commands
+### ⛅ Climate, Season, Time & Lightning Commands
 | Command | Example | Description |
 | :--- | :--- | :--- |
 | `/climate` | `/climate` | Displays current season, day count, local temperature (°C), active weather, and precipitation type |
 | `/season <spring\|summer\|autumn\|winter>` | `/season winter` | Instantly advances calendar to target season and triggers gradual temperature and foliage shifts |
-| `/weather <clear\|rain\|snow>` | `/weather rain` | Sets active weather state, precipitation particle system, and sky lighting |
-| `/climatedebug` | `/climatedebug` | Outputs full climate telemetry table (season progress, wind vector, precip intensity, cloud cover) to DevTools console (F12) |
-| `/timespeed <multiplier>` | `/timespeed 5.0` | Scales day/night cycle and seasonal progression speed (e.g. 5x, 10x) |
+| `/weather <clear\|rain\|storm>` | `/weather storm` | Sets active weather state (`clear`, `rain`, `thunderstorm`), precipitation particle system, and sky lighting |
+| `/lightning [me\|animal\|tree\|block]` | `/lightning tree` | Triggers a lightning bolt targeting entity, tree, or ground with delayed thunder audio & terrain charring |
+| `/lightningstats [n]` | `/lightningstats 10000` | Simulates `n` target rolls and outputs distribution percentages (Living: ~17.6%, Tree: ~35.3%, Block: ~47.1%) |
+| `/lightningdebug <on\|off>` | `/lightningdebug on` | Toggles detailed lightning impact coordinates and thunder delay logs |
+| `/time set <day\|night\|noon\|midnight>` | `/time set noon` | Instantly sets solar clock to day (`0.15`), noon (`0.25`), sunset (`0.52`), night (`0.65`), or midnight (`0.75`) |
+| `/timespeed <multiplier>` | `/timespeed 5.0` | Scales 20-minute day/night cycle progression speed (e.g. 1.0x = 20 real minutes, 5.0x = 4 minutes) |
+| `/climatedebug` | `/climatedebug` | Outputs full climate telemetry table (season progress, wind vector, precip intensity, cloud cover) to console |
 
-### 🐾 Mob, Bird & Combat Commands
+### 🐾 Mob, Animal Panic & Spawning Commands
 | Command | Example | Description |
 | :--- | :--- | :--- |
 | `/spawn <MobType> [count]` | `/spawn Cow 4` | Spawns a single mob or a cohesive herd/group (count $\ge 2$) in front of the player |
+| `/spawntest <species> [n]` | `/spawntest Pig 4` | Tests group spawning (1..4) enforcing density cap of max 4 of same species within 32 blocks radius |
 | `/spawnflock [count]` | `/spawnflock 6` | Spawns a flock of flying birds with active Reynolds boids flocking behavior |
 | `/birdstate <State>` | `/birdstate Soar` | Forces nearest flying bird into a flight state (`Perch`, `TakeOff`, `Fly`, `Soar`, `Land`, `Flee`, `Migrate`) |
 | `/forceattack <MobType> <attackId>` | `/forceattack GrimWraith soul_steal` | Forces a mob to execute an attack immediately, bypassing active cooldowns |
-| `/mobdebug <on\|off>` | `/mobdebug on` | Toggles 3D combat range rings, state labels, and attack cooldown indicators |
+| `/mobdebug <on\|off>` | `/mobdebug on` | Toggles 3D combat range rings, state labels, attack cooldowns, and `[Panic: Xs]` duration telemetry |
 | `/mobai <on\|off>` | `/mobai off` | Freezes or unfreezes all mob artificial intelligence for inspection |
 | `/killmobs` | `/killmobs` | Immediately despawns all active hostile and summoned mobs |
 | `/testrange` | `/testrange` | Spawns a melee mob at 3.0m distance with F4 combat debug ring enabled to test windup & miss |
@@ -388,16 +399,18 @@ Press **`/`** during gameplay to open the command console and run any of the fol
 ### ⚔️ Player, Inventory & World Commands
 | Command | Example | Description |
 | :--- | :--- | :--- |
+| `/plantcheck` | `/plantcheck` | Scans loaded chunks for floating/misplaced cross-plane plants and ensures soil integrity |
+| `/spawnplants` | `/spawnplants` | Spawns a showcase row of all 7 upright cross-plane plants in front of the player |
 | `/gamemode <fly\|survival>` | `/gamemode fly` | Toggles between Free Fly Mode and `0.6×1.8` AABB Gravity/Collision Mode |
-| `/give <item> <count>` | `/give water_source 16` | Adds items to inventory (supports `water_source`, `lava_source`, all ores, logs, tools) |
+| `/give <item> <count>` | `/give bucket_water 1` | Adds items to inventory (supports `bucket_empty`, `bucket_water`, `bucket_lava`, ores, tools) |
 | `/heal` | `/heal` | Restores all 10 Health Hearts (`20 HP`), Stamina, and clears all status effects |
 | `/effect <effectId> [duration]` | `/effect poison 8` | Applies a status effect (`poison`, `bleed`, `stagger`, `fear`, `weakness`, `drain`) |
 | `/clearfx` | `/clearfx` | Clears all active player status effects |
 | `/tp <x> <y> <z>` | `/tp 0 32 0` | Teleports player to world coordinates `(x, y, z)` and reloads surrounding chunks |
-| `/time set <day\|night\|sunset>` | `/time set night` | Instantly advances solar clock to day (`0.25`), sunset (`0.52`), or night (`0.72`) |
 | `/biome` | `/biome` | Prints detailed biome information at player's current position (name, surface, sub, sea-level) |
 | `/biomemap` | `/biomemap` | Toggles top-down 480×480m 2D biome region minimap canvas overlay |
 | `/orestats` | `/orestats` | Analyzes and prints total counts and per-chunk averages for all ores across loaded chunks |
+| `/gallery` | `/gallery` | Constructs a 36-block seamless showcase gallery grid directly ahead of the player |
 | `/gallery` | `/gallery` | Constructs a 36-block seamless showcase gallery grid directly ahead of the player |
 
 ---

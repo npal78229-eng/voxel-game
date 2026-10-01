@@ -15,6 +15,19 @@ import {
   formatTimeDebugReadout,
 } from './config/spawning.js';
 import {
+  rollAnimalGroupSize,
+  ANIMAL_GROUP_MIN,
+  ANIMAL_GROUP_MAX,
+  MAX_SAME_SPECIES_NEARBY,
+  SAME_SPECIES_RADIUS,
+} from './config/animals.js';
+import {
+  TIME_CONFIG,
+  DAY_LENGTH_SECONDS,
+  isNightFraction,
+  isDawnFraction,
+} from './config/time.js';
+import {
   getEntityAABB,
   gapDistance,
   inMeleeRange,
@@ -412,8 +425,8 @@ export class DayNightCycle {
     const w = this.weather !== 'clear' ? ` (${this.weather})` : '';
     let phase = 'Day';
     if (this.isNight()) phase = 'Night';
-    else if (t >= 0.45 && t < this.climate.getSunTimes().nightStart) phase = 'Dusk';
-    else if (t > this.climate.getSunTimes().nightEnd || t < 0.1) phase = 'Dawn';
+    else if (t >= TIME_CONFIG.DUSK_START && t < this.climate.getSunTimes().nightStart) phase = 'Dusk';
+    else if (t >= TIME_CONFIG.SUNRISE_START || t < 0.08) phase = 'Dawn';
     return `${season} D${day} - ${phase}${w} [${Math.round(t * 100)}%]`;
   }
 
@@ -615,40 +628,71 @@ export class PassiveMobManager {
     this.birdAI = new BirdFlightAI(this.world, this.sfx);
     this.animalClimate = new AnimalClimateBehavior(this.world);
 
-    // Task F2 & User Request: Animals spawn in cohesive herds/flocks of 3 or 4!
+    // Phase 4: Animals spawn in cohesive herds/flocks of 1 to 4!
     // NEVER spawn night_monsters during daytime or at world generation.
     const initialAnimalHerds = [
-      { type: 'Pig', x: 11.0, z: 4.5, count: 4 },
-      { type: 'Cow', x: -3.5, z: 5.5, count: 3 },
-      { type: 'Sheep', x: 17.5, z: 12.0, count: 4 },
-      { type: 'Chicken', x: 3.5, z: 16.5, count: 3 },
-      { type: 'Rabbit', x: 14.0, z: 18.0, count: 3 },
-      { type: 'Dog', x: 6.8, z: 7.4, count: 3 },
-      { type: 'Bird', x: 8.0, z: 14.0, count: 4 },
-      // Wild predators also spawn in packs of 3
-      { type: 'Wolf', x: 24.0, z: 21.0, count: 3 },
-      { type: 'Monkey', x: -12.0, z: 22.0, count: 3 },
+      { type: 'Pig', x: 11.0, z: 4.5, count: rollAnimalGroupSize() },
+      { type: 'Cow', x: -3.5, z: 5.5, count: rollAnimalGroupSize() },
+      { type: 'Sheep', x: 17.5, z: 12.0, count: rollAnimalGroupSize() },
+      { type: 'Chicken', x: 3.5, z: 16.5, count: rollAnimalGroupSize() },
+      { type: 'Rabbit', x: 14.0, z: 18.0, count: rollAnimalGroupSize() },
+      { type: 'Dog', x: 6.8, z: 7.4, count: rollAnimalGroupSize() },
+      { type: 'Bird', x: 8.0, z: 14.0, count: rollAnimalGroupSize() },
+      // Wild predators spawn in packs of 2
+      { type: 'Wolf', x: 24.0, z: 21.0, count: 2 },
+      { type: 'Monkey', x: -12.0, z: 22.0, count: 2 },
     ];
 
     for (const herd of initialAnimalHerds) {
-      this.spawnMobGroup(herd.type, herd.x, herd.z, herd.count);
+      this.spawnMobGroup(herd.type, herd.x, herd.z, herd.count, true);
     }
     this._recordSpawnLog(
       'INIT',
-      `Spawned ${this.mobs.length} animals in herds of 3-4 (0 night_monsters at daytime init)`
+      `Spawned ${this.mobs.length} animals in groups of 1-4 (max 4 per species within 32m)`
     );
   }
 
   /**
-   * Spawns a herd/pack of 3 to 4 mobs of the same species clustered around (centerX, centerZ).
+   * Phase 4: Count living mobs of the same species within a given radius.
    */
-  spawnMobGroup(typeOrSpec, centerX, centerZ, count = null) {
+  countNearbySameSpecies(typeName, x, z, radius = SAME_SPECIES_RADIUS) {
+    const rSq = radius * radius;
+    let count = 0;
+    const clean = String(typeName).toLowerCase().replace(/[\s_-]/g, '');
+    for (const m of this.mobs) {
+      if (m.hp > 0) {
+        const mType = (m.spec?.type || m.spec?.id || '').toLowerCase().replace(/[\s_-]/g, '');
+        if (mType === clean) {
+          const mx = m.basePos?.x ?? m.group.position.x;
+          const mz = m.basePos?.z ?? m.group.position.z;
+          const dSq = (mx - x) ** 2 + (mz - z) ** 2;
+          if (dSq <= rSq) {
+            count++;
+          }
+        }
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Phase 4: Spawns a herd/pack of random 1 to 4 mobs of the same species clustered around (centerX, centerZ).
+   * Enforces that never more than 4 of the same species exist within 32 blocks radius.
+   */
+  spawnMobGroup(typeOrSpec, centerX, centerZ, count = null, enforceDensityCap = true) {
     const cfg = this._resolveSpec(typeOrSpec);
-    const [minG, maxG] = SPAWN_CONFIG.ANIMAL_GROUP_SIZE || [3, 4];
-    const groupSize =
-      count !== null
-        ? count
-        : minG + Math.floor(Math.random() * (maxG - minG + 1));
+    let targetSize = count !== null ? count : rollAnimalGroupSize();
+
+    if (enforceDensityCap && (cfg.behaviorClass === 'passive' || cfg.reaction === 'panic')) {
+      const existing = this.countNearbySameSpecies(cfg.type, centerX, centerZ, SAME_SPECIES_RADIUS);
+      if (existing >= MAX_SAME_SPECIES_NEARBY) {
+        return [];
+      }
+      targetSize = Math.min(targetSize, MAX_SAME_SPECIES_NEARBY - existing);
+      if (targetSize <= 0) return [];
+    }
+
+    const groupSize = targetSize;
 
     const groupAnchor = { x: centerX, z: centerZ };
     const spawnedList = [];
@@ -963,11 +1007,9 @@ export class PassiveMobManager {
       .normalize();
     closestMob.group.position.addScaledVector(kb, 0.85 * (1.0 - kbResist));
 
-    if (closestMob.spec.behaviorClass === 'passive') {
-      closestMob.state = 'Flee';
-      closestMob.yaw = Math.atan2(-kb.x, -kb.z);
-      closestMob.timer = 4.0;
-    } else if (closestMob.spec.behaviorClass === 'neutral') {
+    if (closestMob.spec.reaction === 'panic' || closestMob.spec.behaviorClass === 'passive') {
+      this.triggerMobPanic(closestMob, origin);
+    } else if (closestMob.spec.reaction === 'retaliate' || closestMob.spec.behaviorClass === 'neutral') {
       closestMob.provoked = true;
       closestMob.aggroMemoryTimer = 12.0;
       closestMob.state = 'Chase';
@@ -1003,6 +1045,56 @@ export class PassiveMobManager {
       hp: closestMob.hp,
       maxHp: closestMob.maxHp,
     };
+  }
+
+  /**
+   * Phase 3: Trigger Mob Panic & Herd Alarm
+   * Sprints at 1.6x speed for 6..10 seconds, zigzagging every 0.8..1.5s (+/- 60 degrees).
+   * Notifies living same-species mobs within 10 blocks (radius 10m) with 0.2..0.6s delay.
+   * Birds take flight immediately.
+   */
+  triggerMobPanic(mob, sourcePos) {
+    if (!mob || mob.hp <= 0) return;
+
+    // Bird flight takeoff logic: immediately transition to high-speed escape flight
+    if (mob.spec.type === 'Bird' || mob.spec.behaviorClass === 'flying') {
+      if (this.birdAI) {
+        this.birdAI.setBirdState(mob, 'Flee');
+        mob.fleeTimer = 7.0 + Math.random() * 3.0;
+      }
+    }
+
+    const pos = mob.basePos || mob.group.position;
+    const sx = sourcePos ? sourcePos.x : pos.x;
+    const sz = sourcePos ? sourcePos.z : pos.z;
+    const fdx = pos.x - sx;
+    const fdz = pos.z - sz;
+    const baseYaw = Math.hypot(fdx, fdz) > 0.05 ? Math.atan2(fdx, fdz) : (mob.yaw + Math.PI);
+
+    const [minDur, maxDur] = mob.spec.panicDuration || [6, 10];
+    const duration = minDur + Math.random() * (maxDur - minDur);
+    mob.panicTimer = duration;
+    mob.state = 'Panic';
+    mob.panicBaseYaw = baseYaw;
+    mob.yaw = baseYaw + (Math.random() - 0.5) * (Math.PI / 3);
+    mob.panicZigzagTimer = 0.8 + Math.random() * 0.7; // 0.8..1.5s
+    mob.panicSourcePos = { x: sx, z: sz };
+
+    // Herd Alarm: Alert all living same-species mobs within 10 blocks (radius 10m)
+    const ALARM_DIST_SQ = 10.0 * 10.0;
+    for (const other of this.mobs) {
+      if (other !== mob && other.hp > 0 && other.spec.type === mob.spec.type) {
+        const oPos = other.basePos || other.group.position;
+        const dSq = (oPos.x - pos.x) ** 2 + (oPos.z - pos.z) ** 2;
+        if (dSq <= ALARM_DIST_SQ) {
+          const delay = 0.2 + Math.random() * 0.4; // 0.2..0.6s herd alarm reaction delay
+          if (!other.pendingPanicTimer || other.pendingPanicTimer > delay) {
+            other.pendingPanicTimer = delay;
+            other.pendingPanicSource = { x: sx, z: sz };
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -1078,7 +1170,7 @@ export class PassiveMobManager {
       }
     }
 
-    // 2. Attempt Passive Animal Herd Spawns (Groups of 3 or 4 on grass/surface)
+    // 2. Attempt Passive Animal Herd Spawns (Random 1 to 4, max 4 of same species within 32 blocks)
     if (counts.passive < SPAWN_CONFIG.CAPS.passive) {
       const dist = 16 + Math.random() * 20;
       const angle = Math.random() * Math.PI * 2;
@@ -1086,12 +1178,25 @@ export class PassiveMobManager {
       const sz = playerPosition.z + Math.sin(angle) * dist;
       const pool = SPAWN_CONFIG.PASSIVE_POOL;
       const chosenAnimal = pool[Math.floor(Math.random() * pool.length)];
-      const groupSize = 3 + Math.floor(Math.random() * 2); // 3 or 4
-      this.spawnMobGroup(chosenAnimal, sx, sz, groupSize);
-      this._recordSpawnLog(
-        'SUCCESS',
-        `Spawned herd of ${groupSize}x ${chosenAnimal} (passive) at ${dist.toFixed(1)}m`
-      );
+      const nearby = this.countNearbySameSpecies(chosenAnimal, sx, sz, SAME_SPECIES_RADIUS);
+      if (nearby >= MAX_SAME_SPECIES_NEARBY) {
+        this._recordSpawnLog(
+          'SKIP',
+          `Nearby cap (${MAX_SAME_SPECIES_NEARBY}) reached for ${chosenAnimal} within ${SAME_SPECIES_RADIUS}m`
+        );
+      } else {
+        const rawGroup = rollAnimalGroupSize();
+        const allowedGroup = Math.min(rawGroup, MAX_SAME_SPECIES_NEARBY - nearby);
+        if (allowedGroup > 0) {
+          const list = this.spawnMobGroup(chosenAnimal, sx, sz, allowedGroup, true);
+          if (list.length > 0) {
+            this._recordSpawnLog(
+              'SUCCESS',
+              `Spawned herd of ${list.length}x ${chosenAnimal} (passive, nearby was ${nearby}) at ${dist.toFixed(1)}m`
+            );
+          }
+        }
+      }
     }
 
     // 3. Attempt Wild Predator Pack Spawns (Groups of 3 or 4, Day or Night)
@@ -1255,22 +1360,60 @@ export class PassiveMobManager {
       const hasLOS = hasLineOfSight(this.world, eyePos, chestPos);
       const canSeePlayer = horizDist <= senseRange && hasLOS;
 
-      let wantsToFight = false;
-      if (bClass === 'wild_predator') {
-        if (canSeePlayer || horizDist < 5.0) {
-          mob.aggroMemoryTimer = mob.spec.loseInterestSeconds ?? 10.0;
-        } else if (mob.aggroMemoryTimer > 0) {
-          mob.aggroMemoryTimer -= deltaTime;
+      // Phase 3: Herd Alarm Delayed Reaction Tick
+      if (mob.pendingPanicTimer > 0) {
+        mob.pendingPanicTimer -= deltaTime;
+        if (mob.pendingPanicTimer <= 0) {
+          mob.pendingPanicTimer = 0;
+          this.triggerMobPanic(mob, mob.pendingPanicSource);
         }
-        wantsToFight = mob.aggroMemoryTimer > 0;
-      } else if (bClass === 'night_monster' || mob.isSummonedSkeleton) {
-        wantsToFight = horizDist <= senseRange;
-      } else if (bClass === 'neutral') {
-        if (mob.provoked && mob.aggroMemoryTimer > 0) {
-          mob.aggroMemoryTimer -= deltaTime;
-          wantsToFight = true;
-        } else {
-          mob.provoked = false;
+      }
+
+      // Phase 3: Active Panic State Machine Tick
+      if (mob.panicTimer > 0) {
+        mob.panicTimer -= deltaTime;
+        mob.state = 'Panic';
+        mob.attackController?.cancel(mob);
+        mob.nightCombat?.cancel(mob, this.nightProjectiles);
+
+        mob.panicZigzagTimer = (mob.panicZigzagTimer || 0) - deltaTime;
+        if (mob.panicZigzagTimer <= 0) {
+          mob.panicZigzagTimer = 0.8 + Math.random() * 0.7; // 0.8..1.5s interval
+          const src = mob.panicSourcePos || (mob.basePos ? mob.basePos : mob.group.position);
+          const p = mob.basePos || mob.group.position;
+          const fdx = p.x - src.x;
+          const fdz = p.z - src.z;
+          const baseYaw = Math.hypot(fdx, fdz) > 0.1 ? Math.atan2(fdx, fdz) : (mob.panicBaseYaw ?? mob.yaw);
+          // Zigzag +/- 60 deg
+          const zigzagAngle = (Math.random() - 0.5) * (2 * Math.PI / 3);
+          mob.yaw = baseYaw + zigzagAngle;
+        }
+
+        if (mob.panicTimer <= 0) {
+          mob.panicTimer = 0;
+          mob.state = 'Idle';
+          mob.timer = 1.5 + Math.random() * 2.0;
+        }
+      }
+
+      let wantsToFight = false;
+      if (mob.panicTimer <= 0) {
+        if (bClass === 'wild_predator') {
+          if (canSeePlayer || horizDist < 5.0) {
+            mob.aggroMemoryTimer = mob.spec.loseInterestSeconds ?? 10.0;
+          } else if (mob.aggroMemoryTimer > 0) {
+            mob.aggroMemoryTimer -= deltaTime;
+          }
+          wantsToFight = mob.aggroMemoryTimer > 0;
+        } else if (bClass === 'night_monster' || mob.isSummonedSkeleton) {
+          wantsToFight = horizDist <= senseRange;
+        } else if (bClass === 'neutral') {
+          if (mob.provoked && mob.aggroMemoryTimer > 0) {
+            mob.aggroMemoryTimer -= deltaTime;
+            wantsToFight = true;
+          } else {
+            mob.provoked = false;
+          }
         }
       }
 
@@ -1475,27 +1618,31 @@ export class PassiveMobManager {
         mob.attackController?.cancel(mob);
         mob.nightCombat?.cancel(mob, this.nightProjectiles);
 
-        // Part 3: Climate-Driven Animal Behavior Engine (Shelter, Rest, Drink, Huddle)
-        const mobBiome = typeof this.world.getBiomeAt === 'function'
-          ? this.world.getBiomeAt(mob.basePos?.x || mob.group.position.x, mob.basePos?.z || mob.group.position.z)
-          : null;
-        this.animalClimate.updateMobClimateState(deltaTime, mob, climateSystem, mobBiome, this.mobs);
+        if (mob.panicTimer > 0) {
+          // Phase 3: In Panic state - suppress climate behaviors and wander/idle timers!
+        } else {
+          // Part 3: Climate-Driven Animal Behavior Engine (Shelter, Rest, Drink, Huddle)
+          const mobBiome = typeof this.world.getBiomeAt === 'function'
+            ? this.world.getBiomeAt(mob.basePos?.x || mob.group.position.x, mob.basePos?.z || mob.group.position.z)
+            : null;
+          this.animalClimate.updateMobClimateState(deltaTime, mob, climateSystem, mobBiome, this.mobs);
 
-        mob.timer -= deltaTime;
-        if (mob.timer <= 0) {
-          mob.state = Math.random() > 0.22 ? 'Wander' : 'Idle';
-          if (mob.groupAnchor) {
-            const adx = mob.groupAnchor.x - mob.group.position.x;
-            const adz = mob.groupAnchor.z - mob.group.position.z;
-            if (adx * adx + adz * adz > 6.5 * 6.5) {
-              mob.yaw = Math.atan2(adx, adz) + (Math.random() - 0.5) * 0.5;
+          mob.timer -= deltaTime;
+          if (mob.timer <= 0) {
+            mob.state = Math.random() > 0.22 ? 'Wander' : 'Idle';
+            if (mob.groupAnchor) {
+              const adx = mob.groupAnchor.x - mob.group.position.x;
+              const adz = mob.groupAnchor.z - mob.group.position.z;
+              if (adx * adx + adz * adz > 6.5 * 6.5) {
+                mob.yaw = Math.atan2(adx, adz) + (Math.random() - 0.5) * 0.5;
+              } else {
+                mob.yaw += (Math.random() - 0.5) * 2.0;
+              }
             } else {
-              mob.yaw += (Math.random() - 0.5) * 2.0;
+              mob.yaw += (Math.random() - 0.5) * 2.2;
             }
-          } else {
-            mob.yaw += (Math.random() - 0.5) * 2.2;
+            mob.timer = 1.8 + Math.random() * 2.5;
           }
-          mob.timer = 1.8 + Math.random() * 2.5;
         }
       }
 
@@ -1526,7 +1673,7 @@ export class PassiveMobManager {
       let moveX = 0;
       let moveZ = 0;
       const burnSpeedMult = mob.burning ? 1.2 : 1.0; // Section 7.3: +20% panic speed while burning
-      const climateSpeedMult = mob.climateModifiers?.speedMult ?? 1.0;
+      const climateSpeedMult = (mob.panicTimer > 0) ? 1.0 : (mob.climateModifiers?.speedMult ?? 1.0);
       const spd = mob.spec.speed * burnSpeedMult * climateSpeedMult;
 
       if (mob.sidestepTimer > 0) {
@@ -1534,6 +1681,10 @@ export class PassiveMobManager {
         const perpYaw = mob.yaw + (mob.strafeDir || 1) * (Math.PI * 0.5);
         moveX = Math.sin(perpYaw) * spd;
         moveZ = Math.cos(perpYaw) * spd;
+      } else if (mob.state === 'Panic') {
+        const pMult = mob.spec.panicSpeedMult || 1.6;
+        moveX = Math.sin(mob.yaw) * spd * pMult;
+        moveZ = Math.cos(mob.yaw) * spd * pMult;
       } else if (mob.state === 'ChargeRush') {
         moveX = Math.sin(mob.yaw) * spd * 1.6;
         moveZ = Math.cos(mob.yaw) * spd * 1.6;
@@ -1564,9 +1715,25 @@ export class PassiveMobManager {
         const dirX = moveX / moveLen;
         const dirZ = moveZ / moveLen;
 
-        // Part B3.2 — Cliff Avoidance: Passive wandering mobs never walk off drops > 3 blocks
-        if (
-          !wantsToFight &&
+        // Phase 3: Lava avoidance for panicking and wandering animals
+        let lavaAhead = false;
+        const checkDist = 1.35;
+        const aheadX = Math.floor(mob.basePos.x + dirX * checkDist);
+        const aheadZ = Math.floor(mob.basePos.z + dirZ * checkDist);
+        const aheadY = Math.floor(mob.basePos.y);
+        for (let dy = -1; dy <= 1; dy++) {
+          const b = this.world.getBlock(aheadX, aheadY + dy, aheadZ);
+          if (b === 'lava') { lavaAhead = true; break; }
+          if (this.world.fluidSimulator?.getFluid(aheadX, aheadY + dy, aheadZ)?.type === 'lava') { lavaAhead = true; break; }
+        }
+
+        if (lavaAhead) {
+          mob.yaw += Math.PI * (0.65 + Math.random() * 0.5) * (Math.random() > 0.5 ? 1 : -1);
+          moveX = 0;
+          moveZ = 0;
+          isMoving = false;
+        } else if (
+          (!wantsToFight || mob.state === 'Panic') &&
           mob.onGround &&
           isCliffDropAhead(
             this.world,
@@ -1854,8 +2021,8 @@ export class PassiveMobManager {
     this._updateDebugVisuals(playerTarget);
   }
 
-  toggleDebugView() {
-    this.debugViewEnabled = !this.debugViewEnabled;
+  toggleDebugView(forceState) {
+    this.debugViewEnabled = (forceState !== undefined) ? Boolean(forceState) : !this.debugViewEnabled;
     this.debugGroup.visible = this.debugViewEnabled;
     if (!this.debugViewEnabled) {
       this._clearDebugGroup();
@@ -1991,7 +2158,8 @@ export class PassiveMobManager {
             cdsStr = cds.join(' ');
           }
 
-          const labelLine1 = `${mob.spec.type} [${mob.state}] (${Math.max(0, Math.ceil(mob.hp))}/${mob.maxHp}HP) | Dist:${gap.toFixed(1)}m LOS:${hasLOS ? 'YES' : 'NO'}`;
+          const panicStr = mob.panicTimer > 0 ? ` [Panic: ${mob.panicTimer.toFixed(1)}s]` : ` [${mob.state}]`;
+          const labelLine1 = `${mob.spec.type}${panicStr} (${Math.max(0, Math.ceil(mob.hp))}/${mob.maxHp}HP) | Dist:${gap.toFixed(1)}m LOS:${hasLOS ? 'YES' : 'NO'}`;
           const currentAtk = mob.activeAttackName || (mob.attackPhase !== 'IDLE' ? mob.attackPhase : 'IDLE');
           const labelLine2 = `Atk:${currentAtk} | CD:[${cdsStr || 'None'}]`;
           ctx.fillText(labelLine1, canvas.width * 0.5, 28);

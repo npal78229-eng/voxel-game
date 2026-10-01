@@ -2,14 +2,16 @@
 // Climate, Seasons, Weather & Environment Configuration (src/config/climate.js)
 // ============================================================================
 
+import { DAY_LENGTH_SECONDS, TIME_CONFIG } from './time.js';
+
 export const CLIMATE_CONFIG = {
   DAYS_PER_SEASON: 5,
   SEASONS: ['spring', 'summer', 'autumn', 'winter'],
-  DAY_DURATION_SECONDS: 120, // 2 minutes per in-game day (standard voxel cycle)
+  DAY_DURATION_SECONDS: DAY_LENGTH_SECONDS, // 20 minutes (1200s) per in-game day
 
   // Day/Night and Sun Variation
-  BASE_NIGHT_START: 0.55,
-  BASE_NIGHT_END: 0.95,
+  BASE_NIGHT_START: TIME_CONFIG.NIGHT_START, // 0.58
+  BASE_NIGHT_END: TIME_CONFIG.NIGHT_END, // 0.92
   SEASON_DAY_LENGTH_SHIFT: {
     spring: 0.0,
     summer: -0.045, // Day lasts ~18% longer (night starts later, ends earlier)
