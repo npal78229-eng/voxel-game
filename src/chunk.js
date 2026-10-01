@@ -105,7 +105,7 @@ export class VoxelChunk {
         );
         this.transMesh = new THREE.InstancedMesh(
           transGeo,
-          this.world.sharedWaterMaterial,
+          this.world.sharedTransparentMaterial || this.world.sharedMaterial,
           transCap
         );
         this.transMesh.renderOrder = 2;
@@ -232,6 +232,7 @@ export class VoxelChunk {
   rebuildMesh() {
     const opaqueEntries = [];
     const transEntries = [];
+    const plantEntries = [];
     const xrayMode = Boolean(this.world.caveXRayEnabled);
     const XRAY_SET = new Set([
       'coal_ore',
@@ -258,6 +259,23 @@ export class VoxelChunk {
       }
 
       const def = BLOCK_BY_ID[blockType];
+      if (def && def.isPlant) {
+        // Ground Check: Only mesh plant if cell below has valid ground and no fluid
+        const belowKey = this.world.coordKey(wx, wy - 1, wz);
+        const belowType = this.blocks.get(belowKey) || this.world.getBlock(wx, wy - 1, wz);
+        const isGroundValid = Boolean(
+          belowType &&
+          belowType !== 'water' &&
+          belowType !== 'lava' &&
+          belowType !== 'air' &&
+          !BLOCK_BY_ID[belowType]?.isPlant
+        );
+        if (isGroundValid) {
+          plantEntries.push([wx, wy, wz, blockType]);
+        }
+        continue;
+      }
+
       if (def && def.transparent) {
         if (!this.blocks.has(this.world.coordKey(wx, wy + 1, wz))) {
           transEntries.push([wx, wy, wz, blockType]);
@@ -375,7 +393,7 @@ export class VoxelChunk {
         );
         this.transMesh = new THREE.InstancedMesh(
           transGeo,
-          this.world.sharedWaterMaterial,
+          this.world.sharedTransparentMaterial || this.world.sharedMaterial,
           transCap
         );
         this.transMesh.renderOrder = 2;
@@ -387,10 +405,10 @@ export class VoxelChunk {
         dummy.position.set(wx, wy, wz);
         dummy.updateMatrix();
         this.transMesh.setMatrixAt(i, dummy.matrix);
-        const def = BLOCK_BY_ID[blockType] || BLOCK_BY_ID.water;
+        const def = BLOCK_BY_ID[blockType] || BLOCK_BY_ID.glass;
         this.transMesh.setColorAt(i, def.color);
         if (wTileAttr) {
-          const tiles = def.tiles || { top: 30, side: 30, bottom: 30 };
+          const tiles = def.tiles || { top: 32, side: 32, bottom: 32 };
           wTileAttr.array[i * 3 + 0] = tiles.top;
           wTileAttr.array[i * 3 + 1] = tiles.side;
           wTileAttr.array[i * 3 + 2] = tiles.bottom;
@@ -406,6 +424,56 @@ export class VoxelChunk {
     } else if (this.transMesh) {
       this.transMesh.count = 0;
     }
+
+    // Update plant pass (Cross-Plane Plants)
+    if (plantEntries.length > 0) {
+      const plantCap = Math.max(plantEntries.length + 16, 32);
+      if (!this.plantMesh || this.plantMesh.instanceMatrix.count < plantEntries.length) {
+        if (this.plantMesh) {
+          this.world.scene.remove(this.plantMesh);
+          this.plantMesh.geometry.dispose();
+          this.plantMesh.dispose();
+        }
+        const plantGeo = this.world.sharedPlantGeometry.clone();
+        plantGeo.setAttribute(
+          'instanceTiles',
+          new THREE.InstancedBufferAttribute(new Float32Array(plantCap * 3), 3)
+        );
+        this.plantMesh = new THREE.InstancedMesh(
+          plantGeo,
+          this.world.sharedPlantMaterial,
+          plantCap
+        );
+        this.plantMesh.castShadow = true;
+        this.world.scene.add(this.plantMesh);
+      }
+      const pTileAttr = this.plantMesh.geometry.getAttribute('instanceTiles');
+      for (let i = 0; i < plantEntries.length; i++) {
+        const [wx, wy, wz, blockType] = plantEntries[i];
+        dummy.position.set(wx, wy, wz);
+        dummy.updateMatrix();
+        this.plantMesh.setMatrixAt(i, dummy.matrix);
+        const def = BLOCK_BY_ID[blockType] || BLOCK_BY_ID.tall_grass_plant;
+        this.plantMesh.setColorAt(i, def.color);
+        if (pTileAttr) {
+          const tiles = def.tiles || { top: 96, side: 96, bottom: 96 };
+          pTileAttr.array[i * 3 + 0] = tiles.top;
+          pTileAttr.array[i * 3 + 1] = tiles.side;
+          pTileAttr.array[i * 3 + 2] = tiles.bottom;
+        }
+      }
+      if (pTileAttr) pTileAttr.needsUpdate = true;
+      this.plantMesh.count = plantEntries.length;
+      this.plantMesh.instanceMatrix.needsUpdate = true;
+      if (this.plantMesh.instanceColor) {
+        this.plantMesh.instanceColor.needsUpdate = true;
+      }
+      this.plantMesh.computeBoundingSphere();
+    } else if (this.plantMesh) {
+      this.plantMesh.count = 0;
+    }
+
+    this.visibleInstanceCount = opaqueEntries.length + transEntries.length + plantEntries.length;
 
     // Rebuild smooth Minecraft-style fluid meshes (variable quad heights & corner averaging)
     this.rebuildFluidMeshes();

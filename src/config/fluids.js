@@ -25,6 +25,21 @@ export const FLUID_CONFIG = {
     underwaterFogNear: 2.0,
     underwaterFogFar: 28.0,
     underwaterFogColor: '#1d4ed8',
+    // --- Minecraft-Style Water Rendering & Animation Rules ---
+    animation: {
+      waveAmplitude: 0.04,       // Vertex displacement height for surface waves
+      waveSpeed: 1.2,            // Wave oscillation speed multiplier
+      flowSpeed: 0.5,            // UV scroll speed for flow texture
+      textureFrameRate: 10,      // Animated texture frame rate (Hz)
+      textureFrameCount: 16,     // Number of frames in strip texture
+      sparkleIntensity: 0.4,     // Surface sparkle highlight brightness
+      causticIntensity: 0.8,     // Underwater caustic pattern strength
+    },
+    render: {
+      opacity: 0.72,             // Base water transparency
+      roughness: 0.08,           // Low roughness for glossy reflection
+      depthWrite: false,         // Don't write to depth buffer (transparent)
+    },
   },
   lava: {
     type: 'lava',

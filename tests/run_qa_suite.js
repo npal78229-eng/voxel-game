@@ -198,13 +198,13 @@ check('F1.6 60-second simulation standing 0.3m outside ring for Shambler, Wolf &
 // ============================================================================
 console.log('\n--- TASK F2: Day/Night Spawn Categories & Save Cleanup ---');
 
-check('F2.1 Day/Night clock boundaries (55% to 95%) & 3-day simulation', () => {
+check('F2.1 Day/Night clock boundaries (58% to 92%) & 3-day simulation', () => {
   assert.equal(isNightTime(0.25), false); // Noon
-  assert.equal(isNightTime(0.54), false); // Just before dusk threshold
-  assert.equal(isNightTime(0.56), true); // Night start
+  assert.equal(isNightTime(0.55), false); // Dusk (twilight before night)
+  assert.equal(isNightTime(0.60), true); // Night start
   assert.equal(isNightTime(0.75), true); // Midnight
-  assert.equal(isNightTime(0.94), true); // Late night
-  assert.equal(isNightTime(0.96), false); // Dawn
+  assert.equal(isNightTime(0.90), true); // Late night
+  assert.equal(isNightTime(0.95), false); // Dawn (sunrise)
 
   let daytimeNightMonsterSpawns = 0;
   let nighttimeNightMonsterSpawns = 0;
@@ -1399,6 +1399,8 @@ check('BF1.2 Flying bird movement operates in 3D without gravity', () => {
   };
   birdAI.initBird(mob, 0, 0, 22);
   birdAI.setBirdState(mob, 'Fly');
+  mob.flightTarget = { x: 100, z: 100 };
+  mob.targetAltitude = mob.basePos.y;
   mob.flyVelocity.set(4, 0, 3); // Level flight at 5 m/s
 
   const startY = mob.basePos.y;

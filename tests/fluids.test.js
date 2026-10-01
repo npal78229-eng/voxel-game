@@ -354,6 +354,64 @@ check('Scenario 8: Negative chunk coordinates (-1, -1) and orphan cleaner', () =
   return 'Negative coordinates (-1, -1) spread accurately & orphan cleaner cleared stray fluid';
 });
 
+// ----------------------------------------------------------------------------
+// Scenario 9: Placing a solid block inside fluid displaces fluid without phantom water
+// ----------------------------------------------------------------------------
+check('Scenario 9: Placing solid block inside fluid displaces it without phantom water', () => {
+  const world = new MockWorld();
+  for (let x = -5; x <= 5; x++) {
+    for (let z = -5; z <= 5; z++) {
+      world.setBlock(x, 0, z, 'stone');
+    }
+  }
+
+  const sim = new FluidSimulator(world, FLUID_CONFIG);
+  sim.addSource(0, 1, 0, 'water');
+  runUntilSettled(sim);
+
+  assert(sim.getFluid(0, 1, 0) !== null, 'Water source should exist');
+
+  // Place solid block at (0, 1, 0)
+  world.setBlock(0, 1, 0, 'dirt');
+  sim.onBlockChanged(0, 1, 0);
+  runUntilSettled(sim);
+
+  // Fluid at (0, 1, 0) must be null
+  assert.equal(sim.getFluid(0, 1, 0), null, 'Fluid inside placed solid block must be removed');
+  // Air above (0, 2, 0) must NOT have water
+  assert.equal(sim.getFluid(0, 2, 0), null, 'Water must NOT spawn on top of placed solid block');
+
+  return 'Solid block displacement removed fluid and caused 0 phantom water spawns';
+});
+
+// ----------------------------------------------------------------------------
+// Scenario 10: Placing and removing blocks on dry land never spawns fluid
+// ----------------------------------------------------------------------------
+check('Scenario 10: Placing and removing blocks on dry land never spawns fluid', () => {
+  const world = new MockWorld();
+  for (let x = -5; x <= 5; x++) {
+    for (let z = -5; z <= 5; z++) {
+      world.setBlock(x, 10, z, 'grass');
+    }
+  }
+
+  const sim = new FluidSimulator(world, FLUID_CONFIG);
+
+  // Place a block on dry land
+  world.setBlock(0, 11, 0, 'stone');
+  sim.onBlockChanged(0, 11, 0);
+  runUntilSettled(sim);
+  assert.equal(sim.fluids.size, 0, 'Placing block on dry land must not spawn any fluid');
+
+  // Remove the block from dry land
+  world.setBlock(0, 11, 0, null);
+  sim.onBlockChanged(0, 11, 0);
+  runUntilSettled(sim);
+  assert.equal(sim.fluids.size, 0, 'Removing block on dry land must not spawn any fluid');
+
+  return '0 fluid spawned across dry land block placement and removal';
+});
+
 console.log(`\n====================================================================`);
 console.log(` FLUID TESTS RESULT: ${passed} PASSED, ${failed} FAILED`);
 console.log(`====================================================================\n`);
@@ -361,3 +419,4 @@ console.log(`===================================================================
 if (failed > 0) {
   process.exit(1);
 }
+

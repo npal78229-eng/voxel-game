@@ -4,6 +4,7 @@ import { VoxelChunk, CHUNK_SIZE } from './chunk.js';
 import { BLOCK_BY_ID } from './blocks.js';
 import { FluidSimulator } from './fluids/FluidSimulator.js';
 import { FLUID_CONFIG } from './config/fluids.js';
+import { createMinecraftWaterMaterial, WaterAnimator, WATER_RENDER_RULES } from './fluids/WaterRenderer.js';
 
 // ============================================================================
 // Phases U0.2, U2.1 & U3 — VoxelWorld with Web Worker Pool & Pixel Atlas
@@ -118,6 +119,18 @@ function createTintableVoxelMaterial() {
   return applyAtlasShader(mat);
 }
 
+function createTransparentVoxelMaterial() {
+  const mat = new THREE.MeshStandardMaterial({
+    map: getSharedAtlasTexture(),
+    transparent: true,
+    opacity: 0.85,
+    roughness: 0.15,
+    metalness: 0.05,
+    depthWrite: true,
+  });
+  return applyAtlasShader(mat);
+}
+
 function createAnimatedFluidMaterial(texturePath, isWater = true) {
   const loader = new THREE.TextureLoader();
   const tex = loader.load(texturePath);
@@ -227,12 +240,23 @@ export class VoxelWorld {
     this.sharedLavaMaterial = lavaAsset.material;
 
     this.sharedPlantMaterial = createPlantMaterial();
+    this.sharedTransparentMaterial = createTransparentVoxelMaterial();
     this.dummy = new THREE.Object3D();
 
     this.fluidSimulator = new FluidSimulator(this, FLUID_CONFIG);
+    this.waterAnimator = new WaterAnimator();
     this.pendingRemeshChunks = new Set();
     this.remeshDebounceTimer = 0;
     this.fluidAnimTimer = 0;
+
+    // Create enhanced Minecraft-style water shader material
+    this.enhancedWaterMaterial = createMinecraftWaterMaterial({
+      opacity: WATER_RENDER_RULES.render.opacity,
+      waveAmplitude: WATER_RENDER_RULES.animation.waveAmplitude,
+      waveSpeed: WATER_RENDER_RULES.animation.waveSpeed,
+      flowSpeed: WATER_RENDER_RULES.animation.flowSpeed,
+    });
+    this.waterAnimator.addMaterial(this.enhancedWaterMaterial);
 
     this.chunks = new Map();
     this.generationQueue = [];
@@ -403,9 +427,9 @@ export class VoxelWorld {
   }
 
   hasBlockOrProcedural(wx, wy, wz) {
-    const x = Math.round(wx);
-    const y = Math.round(wy);
-    const z = Math.round(wz);
+    const x = Math.floor(wx);
+    const y = Math.floor(wy);
+    const z = Math.floor(wz);
     const chunk = this.getChunkAtWorld(x, z);
     const key = this.coordKey(x, y, z);
     if (chunk) {
@@ -425,9 +449,9 @@ export class VoxelWorld {
 
   setBlock(wx, wy, wz, blockType) {
     if (!blockType) return this.removeBlock(wx, wy, wz);
-    const x = Math.round(wx);
-    let y = Math.round(wy);
-    const z = Math.round(wz);
+    const x = Math.floor(wx);
+    let y = Math.floor(wy);
+    const z = Math.floor(wz);
 
     // Task F6: Gravity blocks (sand, gravel) fall downward when unsupported
     if (blockType === 'sand' || blockType === 'gravel') {
@@ -440,6 +464,15 @@ export class VoxelWorld {
     if (!chunk) return false;
 
     const key = this.coordKey(x, y, z);
+
+    // If placing a solid block inside a fluid cell, displace and remove fluid completely
+    if (blockType !== 'water' && blockType !== 'lava') {
+      this.removeFluid(x, y, z);
+      if (this.fluidSimulator) {
+        this.fluidSimulator.removeFluid(x, y, z);
+      }
+    }
+
     this.modifiedBlocks.set(key, blockType);
     chunk.blocks.set(key, blockType);
     chunk.rebuildMesh();
@@ -459,9 +492,9 @@ export class VoxelWorld {
   }
 
   removeBlock(wx, wy, wz) {
-    const x = Math.round(wx);
-    const y = Math.round(wy);
-    const z = Math.round(wz);
+    const x = Math.floor(wx);
+    const y = Math.floor(wy);
+    const z = Math.floor(wz);
     const chunk = this.getChunkAtWorld(x, z);
     if (!chunk) return false;
 
@@ -647,6 +680,11 @@ export class VoxelWorld {
     }
     if (this.sharedLavaTexture) {
       this.sharedLavaTexture.offset.y = 1.0 - (frame + 1) / 16.0;
+    }
+
+    // 2b. Update enhanced water shader animations (waves, flow, sparkle)
+    if (this.waterAnimator) {
+      this.waterAnimator.update(deltaTime);
     }
 
     // 3. Process debounced chunk remeshing (every 100ms)

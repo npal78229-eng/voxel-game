@@ -139,7 +139,10 @@ export class InventorySystem {
   populateStarterKit() {
     this.slots.fill(null);
     const starterCounts = [32, 32, 32, 32, 24, 32, 24, 24, 24];
-    BLOCK_DEFINITIONS.forEach((def, idx) => {
+    const placeableDefs = BLOCK_DEFINITIONS.filter(
+      (def) => def.id !== 'water' && def.id !== 'lava' && def.id !== 'bedrock'
+    );
+    placeableDefs.forEach((def, idx) => {
       if (idx < TOTAL_SLOTS) {
         this.slots[idx] = { itemType: def.id, count: starterCounts[idx] || 16 };
       }

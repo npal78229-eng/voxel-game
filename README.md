@@ -65,6 +65,7 @@ voxel-game/
 ├── tools/
 │   ├── blender/
 │   │   ├── build_character.py       # Articulated blocky character & animations generator (bpy)
+│   │   ├── build_water.py           # Procedural water block, shape keys & wave exporter (bpy)
 │   │   ├── generate_all_mobs.py     # Headless 14-mob suite generator (bpy)
 │   │   ├── all_mobs.blend           # Daytime, companion & feral mob models
 │   │   └── night_horror_mobs.blend  # Night horror combatant models
@@ -97,7 +98,8 @@ voxel-game/
 │   │   └── trees.js                 # Dark Oak (2x2), Autumn Maple & Giant Redwood (40m) procedural models
 │   ├── fluids/
 │   │   ├── FluidSimulator.js        # Discrete cellular automaton water & lava spread engine
-│   │   └── FluidMesher.js           # Dynamic quad mesher with 4-corner height interpolation & animated strips
+│   │   ├── FluidMesher.js           # Dynamic quad mesher with 4-corner height interpolation & animated strips
+│   │   └── WaterRenderer.js         # Minecraft shader material, surface waves, flow UVs & animation loop
 │   ├── weather/
 │   │   └── Lightning.js             # Natural lightning simulator, 3D visual bolt, delayed audio & terrain charring
 │   ├── workers/
@@ -148,16 +150,20 @@ flowchart TD
 - **Lava Behavior:** 1.5s tick delay (slower, viscous); spreads up to 3 blocks (levels 0, 2, 4, 6); drops by 2 levels per block; 2-block hole search pathfinding.
 - **Infinite Water Sources:** Formed whenever an empty block has 2+ horizontally adjacent water sources over a solid or source floor.
 - **Flow Retreat:** When a source block is removed, flowing liquid retreats and clears cleanly without leaving orphan fluid blocks.
+- **Solid Block Displacement:** Placing any solid block directly into a fluid cell completely displaces and unregisters the fluid, scheduling only valid fluid neighbors to retreat without phantom spawns.
+- **Dry Land Block Placement & Removal:** Block editing on dry land is completely isolated from fluid simulation routines, ensuring 0 unintended fluid generation.
 - **Thermal Block Reactions:**
   - Water flowing horizontally over a Lava Source $\rightarrow$ **Obsidian**.
   - Water touching Flowing Lava $\rightarrow$ **Cobblestone**.
   - Lava falling vertically onto Water $\rightarrow$ **Stone**.
 
-### 2. Variable-Height Quad Meshing & Animations (`src/fluids/FluidMesher.js`)
+### 2. Variable-Height Quad Meshing, Plant Isolation & Water Shaders (`src/fluids/`)
 - **Variable Quad Heights:** Fluid surface height is calculated per corner using the Minecraft formula:
   $$h = \frac{8 - \text{level}}{9.0}$$
   (Falling columns and source blocks with fluid above render at a full height of `1.0`).
 - **Smooth 4-Corner Averaging:** Each vertex height is averaged across adjacent fluid blocks to generate smooth downward slopes.
+- **Plant Mesh Isolation (`src/chunk.js`):** Foliage and undergrowth plants (`tall_grass_plant`, `flower_bluebell`, `flower_violet`, `fern`, etc.) are rendered via a dedicated double-sided cross-plane mesh (`plantMesh` with `sharedPlantMaterial`). Transparent blocks (glass, ice) use a separate atlas material (`sharedTransparentMaterial`), ensuring plants never morph into animated water cubes during dynamic chunk remeshing.
+- **Enhanced Minecraft-Style Water Shader (`src/fluids/WaterRenderer.js`):** Custom vertex displacement waves (`uWaveAmplitude`, `uWaveSpeed`), UV flow scrolling (`uFlowSpeed`), dynamic depth alpha, and animated surface sparkles.
 - **Animated 16-Frame Strips:** Real-time 10 Hz texture frame animation cycling 16 frames on 32×512 vertical strips for `water_still.png`, `water_flow.png`, `lava_still.png`, and `lava_flow.png`.
 
 ### 3. Entity Buoyancy, Swimming & Drowning Physics (`src/controls.js`)
@@ -478,22 +484,26 @@ Voxel Realms maintains automated test suites verifying world generation determin
 # Run the Master 48-Test QA Suite
 node tests/run_qa_suite.js
 
-# Run the 7-Scenario Fluid Simulator Suite
+# Run All Unit Tests (Fluids, Animals, Time Cycle, Lightning - 22 Tests)
+npm test
+
+# Run the 10-Scenario Fluid Simulator Suite
 node tests/fluids.test.js
 ```
 
 | Suite | Tests | Result | Coverage Details |
 | :--- | :---: | :---: | :--- |
 | **Task F1 Melee Verification** | 6 | **PASS** | Edge-to-edge range boundaries, floor reachY checks, solid wall LOS, windup miss |
-| **Task F2 Day/Night Spawning** | 3 | **PASS** | Clock boundaries (55%–95%), behavior classes, version 3 save warnings |
+| **Task F2 Day/Night Spawning** | 3 | **PASS** | Clock boundaries (58%–92%), behavior classes, version 3 save warnings |
 | **Task F3 Ranged Magic Combat** | 2 | **PASS** | Swept projectile collision (14 m/s), sidestep miss, stone wall blocking |
 | **Task F4 & F5 Cave & Ore Gen** | 3 | **PASS** | 12m spawn protection, reverse chunk order determinism, 5-seed benchmark |
 | **Night Mob Combat System** | 4 | **PASS** | 6 status effects, 3s stagger immunity, 12 night mob attacks, daylight burn |
 | **Part A & B Regions & Jump** | 2 | **PASS** | 65,536-column purity audit, 1-block auto-jump, 2-block turn away, unstuck push |
 | **GrimWraith & Skeletons** | 6 | **PASS** | AttackController cooldowns, tactical AI, scythe slash, soul beam, skeleton crumble |
-| **Fluid Simulator (FL1.1–FL1.7)** | 7 | **PASS** | 7-block water spread, vertical fall, hole search, infinite sources, lava, reactions |
+| **Fluid Simulator (FL1.1–FL1.10)** | 10 | **PASS** | 7-block spread, vertical fall, hole search, infinite source, lava, reactions, retreat, displacement, dry-land zero spawn |
 | **Extended Forest, Climate & Birds** | 15 | **PASS** | Biome definitions, 4 seasons, temperature formula, animal behavior, 3D bird AI |
-| **Total Automated Tests** | **48** | **PASS** | **100% Pass Rate with 0 Failures** |
+| **Total Master QA Tests** | **48** | **PASS** | **100% Pass Rate with 0 Failures** |
+| **Total Unit Tests (`npm test`)** | **22** | **PASS** | **100% Pass Rate with 0 Failures** |
 
 ---
 

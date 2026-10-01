@@ -158,14 +158,30 @@ export class FluidSimulator {
     const iz = Math.floor(z);
 
     // If solid block placed inside fluid, remove fluid
-    if (this.isSolid(ix, iy, iz) && this.getFluid(ix, iy, iz)) {
+    if (this.isSolid(ix, iy, iz)) {
       const f = this.getFluid(ix, iy, iz);
-      this.removeFluid(ix, iy, iz);
-      this._scheduleNeighbors(ix, iy, iz, f.type);
+      if (f) {
+        this.removeFluid(ix, iy, iz);
+      }
+      // Only schedule surrounding neighbors that actually contain fluid to retreat or adjust
+      const neighbors = [
+        [ix + 1, iy, iz],
+        [ix - 1, iy, iz],
+        [ix, iy + 1, iz],
+        [ix, iy - 1, iz],
+        [ix, iy, iz + 1],
+        [ix, iy, iz - 1],
+      ];
+      for (const [nx, ny, nz] of neighbors) {
+        const nf = this.getFluid(nx, ny, nz);
+        if (nf) {
+          this.scheduleUpdate(nx, ny, nz, nf.type, 0);
+        }
+      }
       return;
     }
 
-    // Schedule all 6 surrounding neighbors
+    // Block was removed: schedule surrounding neighbors that contain fluid
     const neighbors = [
       [ix + 1, iy, iz],
       [ix - 1, iy, iz],
@@ -192,7 +208,10 @@ export class FluidSimulator {
       [x, y, z - 1],
     ];
     for (const [nx, ny, nz] of dirs) {
-      this.scheduleUpdate(nx, ny, nz, fluidType, 0);
+      const f = this.getFluid(nx, ny, nz);
+      if (f || this.isAirOrReplaceable(nx, ny, nz)) {
+        this.scheduleUpdate(nx, ny, nz, fluidType, 0);
+      }
     }
   }
 
