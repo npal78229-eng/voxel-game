@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Voxel Realms — Calamity Caldera (Three-Headed Emerald Titan)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body, html { width: 100%; height: 100%; overflow: hidden; background: #040805; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    #canvas-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+    
+    /* Crosshair */
+    #crosshair {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 16px; height: 16px;
+      pointer-events: none; z-index: 100;
+    }
+    #crosshair::before, #crosshair::after {
+      content: ''; position: absolute; background: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 0 4px #000;
+    }
+    #crosshair::before { top: 7px; left: 0; width: 16px; height: 2px; }
+    #crosshair::after { top: 0; left: 7px; width: 2px; height: 16px; }
+
+    /* Top Boss Health Bar */
+    #boss-hud {
+      position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+      width: 680px; max-width: 90vw; text-align: center;
+      z-index: 200; pointer-events: none;
+    }
+    .boss-name {
+      font-size: 16px; font-weight: 800; letter-spacing: 3px;
+      color: #39ff14; text-shadow: 0 0 10px #00ff55, 2px 2px #000;
+      margin-bottom: 6px; text-transform: uppercase;
+    }
+    .boss-hp-frame {
+      background: rgba(10, 24, 15, 0.9);
+      border: 2px solid #22aa44; border-radius: 4px;
+      padding: 3px; box-shadow: 0 0 15px rgba(50, 255, 80, 0.4);
+    }
+    .boss-hp-bar {
+      height: 18px; width: 100%;
+      background: linear-gradient(90deg, #118822, #39ff14);
+      border-radius: 2px; transition: width 0.15s ease-out;
+    }
+    .boss-status {
+      font-size: 12px; color: #aaffaa; margin-top: 6px;
+      text-shadow: 1px 1px #000; letter-spacing: 1px; font-weight: 600;
+    }
+    .aggro-active {
+      color: #ff3333 !important;
+      text-shadow: 0 0 10px #ff2222, 1px 1px #000 !important;
+      animation: pulse 1s infinite alternate;
+    }
+    @keyframes pulse {
+      0% { opacity: 0.8; }
+      100% { opacity: 1.0; }
+    }
+
+    /* Telemetry / Laptop Hardware Stats Panel */
+    #telemetry-panel {
+      position: fixed; top: 15px; left: 15px;
+      background: rgba(8, 14, 10, 0.88);
+      border: 1px solid #228833; border-radius: 6px;
+      padding: 12px 16px; color: #eee; font-size: 12px;
+      z-index: 200; pointer-events: none; line-height: 1.5;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+    }
+    .badge-ok { color: #39ff14; font-weight: bold; }
+    .badge-warn { color: #ffbb22; font-weight: bold; }
+    .badge-alert { color: #ff4444; font-weight: bold; }
+
+    /* Controls Overlay Banner */
+    #controls-hint {
+      position: fixed; bottom: 15px; left: 50%; transform: translateX(-50%);
+      background: rgba(12, 18, 14, 0.88); border: 1px solid #336644;
+      border-radius: 20px; padding: 8px 24px; color: #fff; font-size: 12px;
+      z-index: 200; pointer-events: none; text-align: center;
+    }
+
+    /* Start / Click to Play Modal */
+    #blocker {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.80); display: flex;
+      flex-direction: column; justify-content: center; align-items: center;
+      z-index: 500; color: #fff; cursor: pointer; text-align: center;
+    }
+    #blocker h1 { font-size: 32px; color: #39ff14; margin-bottom: 12px; text-shadow: 0 0 15px #00ff44; letter-spacing: 2px; }
+    #blocker p { font-size: 15px; color: #ccc; max-width: 600px; line-height: 1.6; }
+    .btn-portal {
+      margin-top: 22px; padding: 12px 32px;
+      background: #118822; color: #fff; border: 2px solid #39ff14;
+      font-size: 16px; font-weight: bold; border-radius: 4px;
+      box-shadow: 0 0 15px #39ff14; transition: transform 0.1s;
+    }
+    .btn-portal:hover { transform: scale(1.04); }
+  </style>
+  <!-- Three.js from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div id="crosshair"></div>
+
+  <!-- Boss HUD -->
+  <div id="boss-hud">
+    <div class="boss-name">Three-Headed Emerald Titan</div>
+    <div class="boss-hp-frame">
+      <div id="boss-hp" class="boss-hp-bar"></div>
+    </div>
+    <div id="boss-state-text" class="boss-status">
+      FREE WILL (NEUTRAL) — Titan is roaming peacefully. Attack to provoke!
+    </div>
+  </div>
+
+  <!-- Hardware Performance Telemetry -->
+  <div id="telemetry-panel">
+    <div><strong>SYSTEM:</strong> Intel i5-10200H | NVIDIA GTX 1650</div>
+    <div><strong>ARENA:</strong> <span class="badge-ok">CALAMITY CALDERA (110m OPEN)</span></div>
+    <div><strong>HEALING BEAMS:</strong> <span class="badge-ok">REMOVED (Zero Tethers)</span></div>
+    <div><strong>FRAME RATE:</strong> <span id="fps-display" class="badge-ok">60 FPS</span></div>
+    <div><strong>OVERWORLD SIMULATION:</strong> <span class="badge-ok">PAUSED (0 CPU Ticks)</span></div>
+    <div><strong>DRAGON BEHAVIOR:</strong> <span id="behavior-display" class="badge-ok">PEACEFUL FREE WILL</span></div>
+    <div><strong>AI COMBAT STATE:</strong> <span id="phase-display" class="badge-warn">ROAMING</span></div>
+  </div>
+
+  <div id="controls-hint">
+    <strong>WASD</strong> to Move | <strong>Mouse</strong> to Aim | <strong>Left Click</strong> to Attack Titan | <strong>SPACE</strong> to Jump | <strong>Esc</strong> to Pause
+  </div>
+
+  <div id="blocker">
+    <h1>CALAMITY CALDERA</h1>
+    <p>
+      You have entered the <strong>Open Dragon Dimension</strong>.<br>
+      The arena is vast, dangerous, and completely open with <strong>zero healing beams</strong>.<br>
+      The <strong>Three-Headed Emerald Titan</strong> has free will to fly anywhere.<br>
+      <strong>He is currently peaceful</strong>. If you attack him, he will retaliate!
+    </p>
+    <div class="btn-portal">CLICK TO ENTER THE CALDERA</div>
+  </div>
+
+  <script>
+    // --- 1. Procedural Web Audio Synthesizer ---
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    let audioCtx = null;
+    function initAudio() {
+      if (!audioCtx) audioCtx = new AudioCtx();
+    }
+    function playLaserSound() {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(750, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(120, audioCtx.currentTime + 0.18);
+      gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.18);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.18);
+    }
+    function playRoarSound() {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(140, audioCtx.currentTime);
+      osc.frequency.linearRampToValueAtTime(80, audioCtx.currentTime + 0.5);
+      gain.gain.setValueAtTime(0.35, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.6);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.6);
+    }
+
+    // --- 2. Three.js Scene Setup ---
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x030704);
+    scene.fog = new THREE.FogExp2(0x030704, 0.008);
+
+    const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 500);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    container.appendChild(renderer.domElement);
+
+    // --- 3. Atmospheric Lighting & Square Moon ---
+    const ambientLight = new THREE.AmbientLight(0x0a1c10, 1.2);
+    scene.add(ambientLight);
+
+    const moonLight = new THREE.DirectionalLight(0xaad8ff, 1.6);
+    moonLight.position.set(-40, 80, -60);
+    moonLight.castShadow = true;
+    moonLight.shadow.mapSize.width = 1024;
+    moonLight.shadow.mapSize.height = 1024;
+    scene.add(moonLight);
+
+    // Square Moon
+    const moonGeo = new THREE.BoxGeometry(18, 1.5, 18);
+    const moonMat = new THREE.MeshBasicMaterial({ color: 0xe0f0ff });
+    const moonMesh = new THREE.Mesh(moonGeo, moonMat);
+    moonMesh.position.set(-60, 110, -90);
+    moonMesh.rotation.set(0.5, 0.3, 0);
+    scene.add(moonMesh);
+
+    // --- 4. Materials Palette ---
+    const mats = {
+      deepslate: new THREE.MeshStandardMaterial({ color: 0x181c19, roughness: 0.85 }),
+      bedrock: new THREE.MeshStandardMaterial({ color: 0x0f1310, roughness: 0.92 }),
+      obsidian: new THREE.MeshStandardMaterial({ color: 0x0c0912, roughness: 0.32, metalness: 0.3 }),
+      toxicLava: new THREE.MeshBasicMaterial({ color: 0x39ff14 }),
+      neonCrystal: new THREE.MeshBasicMaterial({ color: 0x55ff33 }),
+      dragonScale: new THREE.MeshStandardMaterial({ color: 0x0c2514, roughness: 0.55 }),
+      emeraldPlate: new THREE.MeshStandardMaterial({ color: 0x185526, roughness: 0.45 }),
+      ivory: new THREE.MeshStandardMaterial({ color: 0xdfdac5, roughness: 0.30 }),
+      fireCore: new THREE.MeshBasicMaterial({ color: 0x66ff33 })
+    };
+
+    // --- 5. Vast Open Arena (The Calamity Caldera) ---
+    const arenaGroup = new THREE.Group();
+    scene.add(arenaGroup);
+
+    // A. Main Fractured Tectonic Continent (110m across)
+    const islandGeo = new THREE.CylinderGeometry(55, 45, 5, 24);
+    const island = new THREE.Mesh(islandGeo, mats.deepslate);
+    island.position.set(0, -2.5, 0);
+    island.receiveShadow = true;
+    arenaGroup.add(island);
+
+    // B. Glowing Toxic Lava Fissures (Cutting across the battlefield)
+    const fissureGroup = new THREE.Group();
+    const fissureAngles = [0, 45, 90, 135, 180, 225, 270, 315];
+    fissureAngles.forEach(deg => {
+      const rad = deg * Math.PI / 180;
+      const fGeo = new THREE.BoxGeometry(2.4, 0.3, 38);
+      const fMesh = new THREE.Mesh(fGeo, mats.toxicLava);
+      fMesh.position.set(Math.sin(rad) * 28, 0.05, Math.cos(rad) * 28);
+      fMesh.rotation.y = rad;
+      fissureGroup.add(fMesh);
+
+      // Raised basalt fissure banks
+      const bL = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.7, 36), mats.obsidian);
+      bL.position.set(Math.sin(rad) * 28 + Math.cos(rad) * 1.8, 0.3, Math.cos(rad) * 28 - Math.sin(rad) * 1.8);
+      bL.rotation.y = rad;
+      const bR = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.7, 36), mats.obsidian);
+      bR.position.set(Math.sin(rad) * 28 - Math.cos(rad) * 1.8, 0.3, Math.cos(rad) * 28 + Math.sin(rad) * 1.8);
+      bR.rotation.y = rad;
+      fissureGroup.add(bL, bR);
+    });
+    arenaGroup.add(fissureGroup);
+
+    // C. Sunken Calamity Caldera (30m diameter crater)
+    const calderaOuter = new THREE.Mesh(new THREE.CylinderGeometry(18, 17, 1.2, 20), mats.bedrock);
+    calderaOuter.position.set(0, 0.3, 0);
+    const calderaInner = new THREE.Mesh(new THREE.CylinderGeometry(15, 14, 0.6, 20), mats.toxicLava);
+    calderaInner.position.set(0, 0.5, 0);
+    arenaGroup.add(calderaOuter, calderaInner);
+
+    // D. Central Elevated Wyrm's Throne Crag (Where dragon lands)
+    const throneCrag = new THREE.Mesh(new THREE.BoxGeometry(9, 3.2, 9), mats.obsidian);
+    throneCrag.position.set(0, 1.8, 0);
+    const throneAltar = new THREE.Mesh(new THREE.BoxGeometry(6, 1.0, 6), mats.bedrock);
+    throneAltar.position.set(0, 3.8, 0);
+    const throneRune = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.1, 3.5), mats.toxicLava);
+    throneRune.position.set(0, 4.35, 0);
+    arenaGroup.add(throneCrag, throneAltar, throneRune);
+
+    // E. 12 Menacing Caldera Fangs (Jagged obsidian teeth)
+    for (let i = 0; i < 12; i++) {
+      const a = (i * 30) * Math.PI / 180;
+      const fx = Math.sin(a) * 16.5;
+      const fz = Math.cos(a) * 16.5;
+      const fh = 6.0 + (i % 3) * 3.0;
+
+      const fang = new THREE.Mesh(new THREE.ConeGeometry(1.6, fh, 4), mats.obsidian);
+      fang.position.set(fx, fh * 0.5, fz);
+      // Tilt outwards
+      fang.rotation.x = Math.cos(a) * 0.35;
+      fang.rotation.z = -Math.sin(a) * 0.35;
+      fang.rotation.y = -a;
+      arenaGroup.add(fang);
+    }
+
+    // F. Scattered Ancient Horizon Monoliths (Far away, sky completely open)
+    const ruins = [
+      [-42, 22, 14], [44, 25, 12], [-38, -32, 16], [40, -30, 13]
+    ];
+    ruins.forEach(([rx, rz, rh]) => {
+      const p = new THREE.Mesh(new THREE.BoxGeometry(3.8, rh, 3.8), mats.obsidian);
+      p.position.set(rx, rh * 0.5, rz);
+      p.rotation.y = Math.random() * Math.PI;
+      p.rotation.z = (Math.random() - 0.5) * 0.15;
+      arenaGroup.add(p);
+    });
+
+    // G. Floating Green Ember Particles
+    const emberCount = 60;
+    const emberGeo = new THREE.BoxGeometry(0.25, 0.25, 0.25);
+    const embers = [];
+    for (let i = 0; i < emberCount; i++) {
+      const eMesh = new THREE.Mesh(emberGeo, mats.neonCrystal);
+      eMesh.position.set(
+        (Math.random() - 0.5) * 60,
+        Math.random() * 18 + 0.5,
+        (Math.random() - 0.5) * 60
+      );
+      eMesh.userData.speedY = 0.5 + Math.random() * 0.8;
+      arenaGroup.add(eMesh);
+      embers.push(eMesh);
+    }
+
+    // --- 6. Improved Three-Headed Emerald Titan Model ---
+    const dragon = new THREE.Group();
+    dragon.position.set(0, 16, 0);
+    arenaGroup.add(dragon);
+
+    // Main Chest Body
+    const chest = new THREE.Mesh(new THREE.BoxGeometry(4.4, 3.6, 3.8), mats.dragonScale);
+    chest.castShadow = true;
+    dragon.add(chest);
+
+    // Ventral Armor Plates
+    for (let i = 0; i < 4; i++) {
+      const plate = new THREE.Mesh(new THREE.BoxGeometry(3.6 - i * 0.5, 0.65, 0.4), mats.emeraldPlate);
+      plate.position.set(0, -0.9 + i * 0.75, 2.0);
+      dragon.add(plate);
+    }
+
+    // 4 Heavy Clawed Legs
+    [[-2.2, 1.4], [2.2, 1.4], [-2.0, -1.8], [2.0, -1.8]].forEach(([lx, lz]) => {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.6, 1.4), mats.dragonScale);
+      leg.position.set(lx, -2.4, lz);
+      const claw = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.9, 4), mats.neonCrystal);
+      claw.position.set(lx, -3.7, lz + 0.7);
+      claw.rotation.x = Math.PI * 0.5;
+      dragon.add(leg, claw);
+    });
+
+    // Arched Wings
+    const wingL = new THREE.Group();
+    wingL.position.set(-2.2, 1.4, 0.4);
+    const sparL = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.7, 0.7), mats.dragonScale);
+    sparL.position.set(-4.2, 0, 0);
+    const memL = new THREE.Mesh(new THREE.BoxGeometry(8.0, 0.12, 5.0), mats.emeraldPlate);
+    memL.position.set(-4.2, -0.1, -2.4);
+    wingL.add(sparL, memL);
+    dragon.add(wingL);
+
+    const wingR = new THREE.Group();
+    wingR.position.set(2.2, 1.4, 0.4);
+    const sparR = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.7, 0.7), mats.dragonScale);
+    sparR.position.set(4.2, 0, 0);
+    const memR = new THREE.Mesh(new THREE.BoxGeometry(8.0, 0.12, 5.0), mats.emeraldPlate);
+    memR.position.set(4.2, -0.1, -2.4);
+    wingR.add(sparR, memR);
+    dragon.add(wingR);
+
+    // Three Heads (Distinct Neck Segments + Enlarged Roaring Jaws)
+    const heads = [];
+    const headConfigs = [
+      { name: 'Center', pos: [0, 3.8, 3.4], rot: [0.35, 0, 0], scale: 1.1 },
+      { name: 'Left',   pos: [-3.8, 3.2, 2.6], rot: [0.22, 0.5, 0], scale: 1.0 },
+      { name: 'Right',  pos: [3.8, 3.2, 2.6], rot: [0.22, -0.5, 0], scale: 1.0 },
+    ];
+
+    headConfigs.forEach(cfg => {
+      const hG = new THREE.Group();
+      hG.position.set(...cfg.pos);
+      hG.rotation.set(...cfg.rot);
+      hG.scale.setScalar(cfg.scale);
+
+      // Skull
+      const skull = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.5, 1.6), mats.dragonScale);
+      const snout = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.0, 1.8), mats.dragonScale);
+      snout.position.set(0, -0.2, 1.6);
+
+      // Wide Open Cavernous Jaw
+      const jaw = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.45, 1.7), mats.dragonScale);
+      jaw.position.set(0, -0.9, 1.3);
+      jaw.rotation.x = -0.4;
+
+      // Sharp Ivory Teeth
+      [-0.45, 0, 0.45].forEach(tx => {
+        const toothU = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.45, 4), mats.ivory);
+        toothU.position.set(tx, -0.65, 2.2);
+        toothU.rotation.x = Math.PI;
+        const toothL = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.45, 4), mats.ivory);
+        toothL.position.set(tx, -0.7, 1.8);
+        hG.add(toothU, toothL);
+      });
+
+      // Neon Green Eyes
+      const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.35, 0.35), mats.neonCrystal);
+      eyeL.position.set(-0.95, 0.25, 0.6);
+      const eyeR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.35, 0.35), mats.neonCrystal);
+      eyeR.position.set(0.95, 0.25, 0.6);
+
+      // Green Fire Plasma Core inside Mouth
+      const fire = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.6, 0.9), mats.fireCore);
+      fire.position.set(0, -0.4, 1.1);
+
+      // Swept Horns
+      const hornL = new THREE.Mesh(new THREE.ConeGeometry(0.35, 2.4, 4), mats.neonCrystal);
+      hornL.position.set(-0.7, 1.1, -0.6);
+      hornL.rotation.x = -0.8;
+      hornL.rotation.z = -0.2;
+      const hornR = new THREE.Mesh(new THREE.ConeGeometry(0.35, 2.4, 4), mats.neonCrystal);
+      hornR.position.set(0.7, 1.1, -0.6);
+      hornR.rotation.x = -0.8;
+      hornR.rotation.z = 0.2;
+
+      hG.add(skull, snout, jaw, eyeL, eyeR, fire, hornL, hornR);
+      dragon.add(hG);
+      heads.push({ group: hG, fire: fire });
+    });
+
+    // --- 7. Player Controls ---
+    const player = {
+      pos: new THREE.Vector3(0, 3.2, 38),
+      vel: new THREE.Vector3(),
+      yaw: Math.PI, pitch: 0,
+      keys: { w: false, a: false, s: false, d: false, space: false }
+    };
+    camera.position.copy(player.pos);
+
+    let isLocked = false;
+    const blocker = document.getElementById('blocker');
+    blocker.addEventListener('click', () => {
+      initAudio();
+      container.requestPointerLock();
+    });
+    document.addEventListener('pointerlockchange', () => {
+      isLocked = document.pointerLockElement === container;
+      blocker.style.display = isLocked ? 'none' : 'flex';
+    });
+
+    window.addEventListener('keydown', e => {
+      const k = e.key.toLowerCase();
+      if (k === 'w') player.keys.w = true;
+      if (k === 'a') player.keys.a = true;
+      if (k === 's') player.keys.s = true;
+      if (k === 'd') player.keys.d = true;
+      if (k === ' ') player.keys.space = true;
+    });
+    window.addEventListener('keyup', e => {
+      const k = e.key.toLowerCase();
+      if (k === 'w') player.keys.w = false;
+      if (k === 'a') player.keys.a = false;
+      if (k === 's') player.keys.s = false;
+      if (k === 'd') player.keys.d = false;
+      if (k === ' ') player.keys.space = false;
+    });
+    window.addEventListener('mousemove', e => {
+      if (!isLocked) return;
+      player.yaw -= e.movementX * 0.0025;
+      player.pitch = Math.max(-1.4, Math.min(1.4, player.pitch - e.movementY * 0.0025));
+    });
+
+    // Projectiles
+    const projectiles = [];
+    const projGeo = new THREE.SphereGeometry(0.35, 8, 8);
+    const projMat = new THREE.MeshBasicMaterial({ color: 0x39ff14 });
+
+    window.addEventListener('mousedown', e => {
+      if (!isLocked || e.button !== 0) return;
+      playLaserSound();
+
+      // Spawn projectile from player camera
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      const proj = new THREE.Mesh(projGeo, projMat);
+      proj.position.copy(camera.position).addScaledVector(dir, 1.2);
+      proj.userData = { vel: dir.multiplyScalar(55.0), life: 2.5 };
+      scene.add(proj);
+      projectiles.push(proj);
+    });
+
+    // --- 8. Free-Will & Retaliation Boss AI ---
+    let isAggro = false; // Starts PEACEFUL (Free Will)
+    let bossHP = 1000;
+    const maxHP = 1000;
+    let bossState = 'FREE_ROAM'; // FREE_ROAM, DIVE_BOMB, PERCH_ROAR, RETALIATE_CIRCLING
+    let stateTimer = 0;
+    let roamAngle = 0;
+    let wingTime = 0;
+
+    function triggerAggro() {
+      if (!isAggro) {
+        isAggro = true;
+        playRoarSound();
+        const statusEl = document.getElementById('boss-state-text');
+        statusEl.textContent = 'AGGRO TRIGGERED! Titan is retaliating with fury!';
+        statusEl.classList.add('aggro-active');
+
+        const behavEl = document.getElementById('behavior-display');
+        behavEl.textContent = 'HOSTILE RETALIATION';
+        behavEl.className = 'badge-alert';
+
+        bossState = 'DIVE_BOMB';
+        stateTimer = 0;
+      }
+    }
+
+    function damageTitan(amount) {
+      triggerAggro();
+      bossHP = Math.max(0, bossHP - amount);
+      document.getElementById('boss-hp').style.width = `${(bossHP / maxHP) * 100}%`;
+      playRoarSound();
+
+      if (bossHP <= 0) {
+        document.getElementById('boss-state-text').textContent = 'TITAN DEFEATED! The Calamity Caldera is conquered!';
+      }
+    }
+
+    // --- 9. Game Loop ---
+    let lastTime = performance.now();
+    let frameCount = 0;
+    let fpsTime = 0;
+
+    function animate(currentTime) {
+      requestAnimationFrame(animate);
+      const delta = Math.min((currentTime - lastTime) / 1000, 0.1);
+      lastTime = currentTime;
+
+      frameCount++;
+      fpsTime += delta;
+      if (fpsTime >= 1.0) {
+        document.getElementById('fps-display').textContent = `${frameCount} FPS`;
+        frameCount = 0;
+        fpsTime = 0;
+      }
+
+      // 1. Player Physics & Movement
+      if (isLocked) {
+        const forward = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+        const side = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
+        const moveDir = new THREE.Vector3();
+        if (player.keys.w) moveDir.add(forward);
+        if (player.keys.s) moveDir.sub(forward);
+        if (player.keys.d) moveDir.add(side);
+        if (player.keys.a) moveDir.sub(side);
+        if (moveDir.lengthSq() > 0) moveDir.normalize();
+
+        const speed = 14.0;
+        player.vel.x = moveDir.x * speed;
+        player.vel.z = moveDir.z * speed;
+
+        if (player.keys.space && player.pos.y <= 3.3) {
+          player.vel.y = 8.0;
+        }
+
+        player.vel.y -= 22.0 * delta; // Gravity
+        player.pos.addScaledVector(player.vel, delta);
+
+        if (player.pos.y < 3.2) {
+          player.pos.y = 3.2;
+          player.vel.y = 0;
+        }
+
+        // Bounded by 50m arena island radius
+        const distFromCenter = Math.sqrt(player.pos.x * player.pos.x + player.pos.z * player.pos.z);
+        if (distFromCenter > 52) {
+          player.pos.x *= 52 / distFromCenter;
+          player.pos.z *= 52 / distFromCenter;
+        }
+
+        camera.position.copy(player.pos);
+        camera.rotation.order = 'YXZ';
+        camera.rotation.y = player.yaw;
+        camera.rotation.x = player.pitch;
+      }
+
+      // 2. Animate Embers
+      embers.forEach(e => {
+        e.position.y += e.userData.speedY * delta;
+        if (e.position.y > 22.0) {
+          e.position.y = 0.5;
+          e.position.x = (Math.random() - 0.5) * 60;
+          e.position.z = (Math.random() - 0.5) * 60;
+        }
+      });
+
+      // 3. Projectile Updates & Collision
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        const p = projectiles[i];
+        p.position.addScaledVector(p.userData.vel, delta);
+        p.userData.life -= delta;
+
+        // Check hit against dragon
+        if (p.position.distanceTo(dragon.position) < 6.5) {
+          damageTitan(45);
+          scene.remove(p);
+          projectiles.splice(i, 1);
+          continue;
+        }
+
+        if (p.userData.life <= 0) {
+          scene.remove(p);
+          projectiles.splice(i, 1);
+        }
+      }
+
+      // 4. Dragon Wings Flapping
+      wingTime += delta * (isAggro ? 8.5 : 5.0);
+      const flap = Math.sin(wingTime) * 0.45;
+      wingL.rotation.z = flap;
+      wingR.rotation.z = -flap;
+
+      // 5. Boss AI State Machine
+      stateTimer += delta;
+      document.getElementById('phase-display').textContent = bossState;
+
+      if (bossState === 'FREE_ROAM') {
+        // Wide peaceful circling through the open 110m airspace
+        roamAngle += delta * 0.35;
+        const roamRadius = 32.0;
+        const flyX = Math.sin(roamAngle) * roamRadius;
+        const flyZ = Math.cos(roamAngle) * roamRadius;
+        const flyY = 16.0 + Math.sin(roamAngle * 2.0) * 3.5;
+
+        dragon.position.set(flyX, flyY, flyZ);
+        dragon.rotation.y = roamAngle + Math.PI * 0.5;
+        dragon.rotation.z = Math.sin(roamAngle) * 0.2;
+
+        if (stateTimer > 14.0) {
+          bossState = 'PERCH_ROAR';
+          stateTimer = 0;
+        }
+      } else if (bossState === 'PERCH_ROAR') {
+        // Perch on the central Caldera Throne Altar (0, 7.5, 0)
+        const perchPos = new THREE.Vector3(0, 7.5, 0);
+        dragon.position.lerp(perchPos, delta * 2.0);
+        dragon.lookAt(player.pos.x, dragon.position.y, player.pos.z);
+
+        // Heads roar with pulsating green fire
+        const fireScale = 1.0 + Math.sin(stateTimer * 12.0) * 0.35;
+        heads.forEach(h => h.fire.scale.set(fireScale, fireScale, fireScale * 1.3));
+
+        if (stateTimer > 6.0) {
+          heads.forEach(h => h.fire.scale.set(1, 1, 1));
+          bossState = isAggro ? 'DIVE_BOMB' : 'FREE_ROAM';
+          stateTimer = 0;
+        }
+      } else if (bossState === 'DIVE_BOMB') {
+        // Retaliatory Swoop directly at the player!
+        const target = new THREE.Vector3(player.pos.x, 3.8, player.pos.z);
+        dragon.position.lerp(target, delta * 2.2);
+        dragon.lookAt(player.pos.x, player.pos.y + 1.0, player.pos.z);
+
+        if (stateTimer > 3.8 || dragon.position.distanceTo(target) < 4.0) {
+          playRoarSound();
+          bossState = 'RETALIATE_CIRCLING';
+          stateTimer = 0;
+        }
+      } else if (bossState === 'RETALIATE_CIRCLING') {
+        // Fast aggressive combat loop
+        roamAngle += delta * 0.7;
+        const rRad = 24.0;
+        const flyX = Math.sin(roamAngle) * rRad;
+        const flyZ = Math.cos(roamAngle) * rRad;
+        const flyY = 13.0 + Math.sin(roamAngle * 3.0) * 4.0;
+
+        dragon.position.set(flyX, flyY, flyZ);
+        dragon.lookAt(player.pos.x, player.pos.y, player.pos.z);
+
+        if (stateTimer > 7.0) {
+          bossState = Math.random() > 0.5 ? 'DIVE_BOMB' : 'PERCH_ROAR';
+          stateTimer = 0;
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    animate(performance.now());
+
+    // Window Resize Handler
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
