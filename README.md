@@ -3,14 +3,17 @@
 [![Engine](https://img.shields.io/badge/Three.js-r170-black?logo=threedotjs)](https://threejs.org/)
 [![Bundler](https://img.shields.io/badge/Vite-6.4-646CFF?logo=vite)](https://vitejs.dev/)
 [![Desktop](https://img.shields.io/badge/Electron-Desktop_Ready-47848F?logo=electron)](https://www.electronjs.org/)
-[![QA Suite](https://img.shields.io/badge/QA_Suite-48%2F48_Passing-4ade80)]()
+[![QA Suite](https://img.shields.io/badge/QA_Suite-55%2F55_Passing-4ade80)]()
+[![Village](https://img.shields.io/badge/Village_v3-32_Structures_%2B_Villagers-10b981)]()
+[![Clans](https://img.shields.io/badge/Clan_Flags-5_Territories-8b5cf6)]()
+[![Boss](https://img.shields.io/badge/Boss_Dimension-Calamity_Caldera-ef4444)]()
 [![Fluids](https://img.shields.io/badge/Fluids-Minecraft_Physics_Online-38bdf8)]()
 [![Climate](https://img.shields.io/badge/Climate-4_Seasons_%2B_Weather-f59e0b)]()
-[![Fauna](https://img.shields.io/badge/Fauna-14_Blender_Mobs_%2B_Boids_Birds-ec4899)]()
+[![Fauna](https://img.shields.io/badge/Fauna-16_Blender_Mobs_%2B_Boids_Birds-ec4899)]()
 
 **Voxel Realms** is a full-featured, browser- and desktop-ready 3D voxel sandbox game built from the ground up using **Three.js**, **Vite**, **ES Module Web Workers**, **Web Audio API**, **IndexedDB**, and **Electron**.
 
-It implements **all 7 Core Development Phases (`Phases 0–6`)**, **all 8 Advanced Upgrade Phases (`Phases U0–U7`)**, and the complete **Minecraft-Style Fluid Physics Simulator, 13 Procedural Biomes & Old-Growth Forests, Multi-Attack Combat AI, 20-Day 4-Season Climate Engine, Reynolds Boids 3D Flying Birds, and 14 Sculpted Blender Mobs**.
+It implements **all 7 Core Development Phases (`Phases 0–6`)**, **all 8 Advanced Upgrade Phases (`Phases U0–U7`)**, the **Village v3 Procedural Architecture & 5 Clan Territories**, the **Calamity Caldera Three-Headed Titan Boss Dimension**, the **Minecraft-Style Fluid Physics Simulator**, **13 Procedural Biomes & Old-Growth Forests**, **Multi-Attack Combat AI**, **20-Day 4-Season Climate Engine**, **Reynolds Boids 3D Flying Birds**, and **16 Sculpted Blender Mobs & Villagers**.
 
 ---
 
@@ -199,6 +202,119 @@ The **GrimWraith** uses a dedicated [`AttackController`](file:///c:/Users/npal7/
 - **Fear:** Slows movement speed by 40% and produces screen shake.
 - **Weakness:** Reduces player melee attack damage by 40%.
 - **Soul Drain:** Drains 10% maximum health over time and depletes stamina.
+
+---
+
+## 🏰 Village v3, Clan Territories & Villagers (`src/world/VillageSystem.js`)
+
+Voxel Realms introduces a full procedural architectural generation system powered by `village_v3_blueprint.json` and customized Blender assets, featuring an authentic living settlement:
+
+```mermaid
+flowchart TD
+    Blueprint["village_v3_blueprint.json\n(32 Structures • 75 Placements)"] --> VGen["VillageSystem.js"]
+    VGen --> Foundation["Terrain Leveling & Cobblestone Foundation"]
+    VGen --> RoadGen["Cobblestone & Gravel Walkway Grid"]
+    VGen --> StructBuild["Structure Voxel Construction\n• Town Hall & Bell Tower\n• Houses A–Q & Smithy\n• Market Stalls, Farms & Windmill"]
+    VGen --> ClanFlags["5 Clan Banners ('Clane')\n• Sword • Bow • Dragon • Magic • Shield"]
+    VGen --> Villagers["Inhabitant Population\n• Male Villager (Folded Arms)\n• Female Artisan (Hair & Apron)"]
+    VGen --> Portal["Ancient Caldera Portal\n(Obsidian Archway -> Boss Dimension)"]
+```
+
+### 1. Village Architecture & Blueprint Specification
+- **32 Structural Typologies:** Town Hall (`footprint: [11, 9]`), Bell Tower (`footprint: [5, 5]`), Smithy with furnaces and crafting tables, Central Village Well, Market Stalls (NW, NE, SW, SE), 16 Residential Houses (`house_a` through `house_q`), 2 Agricultural Crop Farms, Windmill, and Clan House.
+- **75 Deterministic Placements:** Full $104 \times 72$ block settlement layout. Each placement specifies structure type, grid offsets $(x, z)$, and $90^\circ$ clockwise rotation index ($r \in \{0, 1, 2, 3\}$).
+- **Adaptive Ground Foundation:** Generates supportive cobblestone underpinnings down to solid terrain so buildings never float on undulating or sloped topography.
+- **Thoroughfares & Plazas:** Automated cobblestone and gravel pathways connecting the central well, market square, residential quarters, and the outer clan boundary.
+
+### 2. The 5 Clan Banners ("Clane")
+At the eastern edge of the settlement stands the Clan District, featuring 5 monumental banner posts marking the territories of the realm's great factions:
+| Clan | Emblem & Colors | Insignia Meaning | Position in Village |
+| :--- | :--- | :--- | :--- |
+| ⚔️ **Sword** | Crimson banner (`#b91c1c`) with Gold core (`#f59e0b`) | Clan of the Blade — Frontline warrior vanguard | $(x: 85, z: 29)$ |
+| 🏹 **Bow** | Azure banner (`#0284c7`) with Sky-Blue trim (`#38bdf8`) | Clan of the Gale — Marksmen and scouts | $(x: 88, z: 26)$ |
+| 🐉 **Dragon** | Emerald banner (`#15803d`) with Jade crest (`#4ade80`) | Clan of the Wyrm — Keepers of the ancient caldera lore | $(x: 85, z: 23)$ |
+| 🔮 **Magic** | Amethyst banner (`#7e22ce`) with Glowing Violet rune (`#c084fc`) | Clan of the Arcane — Mystics and enchanters | $(x: 88, z: 20)$ |
+| 🛡️ **Shield** | Slate Cobalt banner (`#334155`) with Steel plate (`#94a3b8`) | Clan of the Aegis — Protectors and builders | $(x: 85, z: 17)$ |
+
+Each flag is constructed with a 5-block tall spruce log pole (`pine_log`), a golden finial (`gold_ore`), a crown torch, and high-detail double-sided 3D cloth banners with procedural wind oscillation.
+
+### 3. Living Villager Fauna (`src/BlenderMobs.js`, `src/config/mobs.js`)
+Modeled after `minecraft_villagers.blend` and translated into optimized voxel rigs:
+- **Classic Villager (`Villager`):** Iconic folded-arms posture (`Villager_FoldedArms_Middle`), emerald belt buckle, brown wool robe, unibrow, and long protruding nose.
+- **Artisan Villager (`VillagerFemale`):** Dual side hair braids, collar trim, and an artisan teal apron.
+- **Interactive Head-Turn Tracking:** When the player approaches within 6 meters, villagers smoothly turn their heads to maintain eye contact with the player.
+- **Behavior Class:** Passive entities (20 HP) that panic when harmed, emit emerald ore rewards upon defeat, and wander peacefully around market stalls and plazas.
+
+---
+
+## 🐉 Calamity Caldera & Three-Headed Emerald Titan Boss Dimension (`src/DragonArenaSystem.js`)
+
+The **Three-Headed Emerald Titan** is a monumental boss encounter strictly quarantined inside its own dedicated spatial dimension:
+
+```mermaid
+flowchart LR
+    subgraph Overworld["Overworld (Peaceful Exploration)"]
+        OVW["Voxel Terrain • Day/Night • Weather • Villagers • Passive Herds"]
+        Gate["Ancient Obsidian Caldera Portal\n(Village Boundary • x: 94, z: 36)"]
+    end
+
+    subgraph BossDim["Calamity Caldera Boss Dimension (Isolated)"]
+        Caldera["110m Fractured Island • Toxic Lava Fissures • 12 Obsidian Fangs"]
+        Dragon["Three-Headed Emerald Titan (1,000 HP)\n• FREE_ROAM -> PERCH_ROAR -> DIVE_BOMB -> CIRCLING\n• Independent Multi-Head Fire Breath\n• Zero Healing Beams • Pure Combat Mechanics"]
+        AltExit["Caldera Return Portal Altar\n(Perimeter Gateway • z: 42)"]
+    end
+
+    OVW -->|"Step into Portal or press F8"| Gate
+    Gate -->|"Suspends Overworld Chunks & Mob AI\nDedicates 100% Budget to Boss"| Caldera
+    Caldera -->|"Press F8 or Step on Return Altar"| AltExit
+    AltExit -->|"Restore Overworld Simulation"| OVW
+```
+
+### 1. Laptop Performance Isolation Architecture
+To guarantee smooth **60+ FPS performance on everyday laptops** (tested on Core i5-10200H + GTX 1650):
+- **Overworld Suspension:** Stepping through the Ancient Portal immediately suspends heavy Overworld background jobs: chunk worker meshing, infinite chunk generation, dynamic daylight calculations, weather particles, lightning simulations, and passive animal herd ticks.
+- **Zero Dragon Presence in Overworld:** The Three-Headed Dragon **never spawns in the Overworld**, preventing world disruption and saving GPU/CPU memory for normal gameplay.
+- **Single-Focused Frame Budget:** 100% of the GPU draw calls and CPU frame budget in the Boss Dimension are dedicated solely to the dragon's multi-head animations, flapping wings, toxic lava fissures, and retaliatory combat.
+
+### 2. Calamity Caldera Environment Design
+- **110-Meter Fractured Continent:** Formed from deepslate, basalt, and bedrock with zero edge barriers for high-stakes aerial combat.
+- **Toxic Green Lava Fissures:** 8 radial tectonic rifts filled with radiant emerald magma (`#39ff14`) dealing thermal hazard damage.
+- **12 Obsidian Caldera Fangs:** Monolithic needle crags (up to 12m tall) flanking the caldera perimeter, serving as tactical cover against breath attacks.
+- **Wyrm's Throne Crag:** Central elevated altar where the Titan lands during perched roar phases.
+- **Atmospheric Lighting:** Self-contained ambient emerald glow, dramatic green moonlight (`#55ff77`), and 50 floating animated toxic embers.
+- **Zero Crystal Healing Beams:** Unlike the vanilla Ender Dragon fight, all healing beams have been eliminated for a pure, responsive combat test.
+
+### 3. Boss Artificial Intelligence & Retaliatory State Machine
+The Titan is endowed with neutral **Free Will**:
+- **`FREE_ROAM` (Neutral State):** The dragon glides peacefully in high atmospheric circles ($r = 32\text{m}$, altitude $16\text{m}$) over the caldera. It ignores the player unless provoked.
+- **`PERCH_ROAR`:** Glides down to perch atop the Wyrm's Throne, spreading its wings and charging fire cores across all three heads.
+- **Retaliation Trigger:** Attacking the dragon immediately triggers aggro, shifting the boss into aggressive combat phases:
+  - **`DIVE_BOMB`:** Sweeps down at high velocity directly toward the player's position.
+  - **`RETALIATE_CIRCLING`:** Executes tight strafing maneuvers ($r = 24\text{m}$) while firing green toxic fire bursts from all three roaring heads.
+- **Dynamic Boss Health Bar HUD:** Real-time top-screen health bar display showing the Titan's remaining vitality out of 1,000 HP and current combat status.
+- **Exiting the Dimension:** Players can return to the Overworld village at any time by stepping into the Caldera Return Portal at the perimeter, or by pressing **`F8`** or entering `/dragon`.
+
+---
+
+## ⚙️ Mob Simulation, Pathfinding & Chunk Alignment Mechanisms (`src/polish.js`, `src/collision.js`)
+
+To resolve mob freezing, clipping, and spawning issues, the simulation engine implements robust chunk synchronization and recovery mechanisms:
+
+### 1. Active Chunk-Load Surface Alignment
+- **The Problem:** In infinite streaming worlds, mobs initialized before asynchronous Web Worker chunk meshing finishes would often have their vertical position set to pre-mesh noise estimates. When actual terrain voxels streamed in, mobs could become embedded inside solid dirt, stone hillsides, or dense tree foliage.
+- **The Solution:** Whenever an entity transitions from an unloaded chunk to a loaded chunk, [`polish.js`](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/src/polish.js) invokes [`getHighestSolidY`](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/src/collision.js) against the real chunk voxel map. If the mob's foot elevation is below the true ground level, it is immediately elevated to `groundY + 0.5`, zeroing vertical velocity and grounding the entity cleanly.
+
+### 2. Immediate Collision Push-Out vs 4-Stage Stuck Ladder
+- **Frame-by-Frame Intersect Detection:** If an entity's AABB (`0.65×1.2` or `0.85×1.95`) intersects any solid voxel, [`pushEntityOutOfBlocks`](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/src/collision.js) immediately attempts cardinal nudges ($0.85\text{m}$) or vertical upward lifts to find clear air space.
+- **4-Stage Stuck Ladder (at 2 Hz):**
+  - *Stage 1 (0.5s–1.2s):* Auto-jump impulse (`AUTO_JUMP_IMPULSE = 6.2 m/s`) for 1-block steps.
+  - *Stage 2 (1.2s–2.5s):* Turn away $90^\circ$–$180^\circ$ and pick a new wander waypoint.
+  - *Stage 3 (2.5s–4.0s):* Reverse strafe direction to navigate around 2+ block obstacles.
+  - *Stage 4 (4.0s+):* Safety push-out to highest unobstructed vertical surface.
+
+### 3. Accurate Ground & Headroom Spawning Checks
+- Night monster and animal spawning loops now evaluate [`world.isSolidAt(x, y + 1, z)`](file:///c:/Users/npal7/OneDrive/PROJECT/project1/voxel-game/src/world.js) rather than raw block presence. This ensures that non-solid undergrowth voxels (such as tall grass, bluebells, poppies, and ferns) no longer block valid mob spawning on grassy terrain.
+- Density cap queries utilize canonical identifiers (`cfg.id || cfg.type`) to correctly enforce the maximum 4-animals-per-species limit within a 32-meter radius.
 
 ---
 
@@ -401,10 +517,13 @@ Press **`/`** during gameplay to open the command console and run any of the fol
 | `/killmobs` | `/killmobs` | Immediately despawns all active hostile and summoned mobs |
 | `/testrange` | `/testrange` | Spawns a melee mob at 3.0m distance with F4 combat debug ring enabled to test windup & miss |
 | `/spawnstats` | `/spawnstats` | Prints mob population counts by class (passive, predator, night) and last 10 spawn attempt logs |
+| `/villager [female]` | `/villager female` | Spawns an articulated resident Villager or Artisan with interactive head look-at AI |
 
 ### ⚔️ Player, Inventory & World Commands
 | Command | Example | Description |
 | :--- | :--- | :--- |
+| `F8` / `/dragon` | `F8` or `/dragon` | Toggles entering/exiting the Calamity Caldera Three-Headed Titan Boss Dimension |
+| `/village` | `/village` | Teleports player directly to the Village central town square |
 | `/plantcheck` | `/plantcheck` | Scans loaded chunks for floating/misplaced cross-plane plants and ensures soil integrity |
 | `/spawnplants` | `/spawnplants` | Spawns a showcase row of all 7 upright cross-plane plants in front of the player |
 | `/gamemode <fly\|survival>` | `/gamemode fly` | Toggles between Free Fly Mode and `0.6×1.8` AABB Gravity/Collision Mode |
@@ -417,19 +536,18 @@ Press **`/`** during gameplay to open the command console and run any of the fol
 | `/biomemap` | `/biomemap` | Toggles top-down 480×480m 2D biome region minimap canvas overlay |
 | `/orestats` | `/orestats` | Analyzes and prints total counts and per-chunk averages for all ores across loaded chunks |
 | `/gallery` | `/gallery` | Constructs a 36-block seamless showcase gallery grid directly ahead of the player |
-| `/gallery` | `/gallery` | Constructs a 36-block seamless showcase gallery grid directly ahead of the player |
 
 ---
 
-## 🐾 Complete 14-Mob Blender Suite (`tools/blender/`)
+## 🐾 Complete 16-Mob Blender Suite & Villagers (`tools/blender/`)
 
-![All 14 Sculpted Blender Mobs](public/assets/models/all_mobs_render.png)
+![All Sculpted Blender Mobs](public/assets/models/all_mobs_render.png)
 
 ![Night Horror Blender Mobs](public/assets/models/night_horror_mobs_render.png)
 
-All **14 custom 3D mobs** sculpted in Blender are integrated with distinct AI, procedural animations, and combat hitboxes:
+All **16 custom 3D mobs & villagers** sculpted in Blender are integrated with distinct AI, procedural animations, and combat hitboxes:
 
-### ☀️ Daytime, Companion & Feral Mobs (10)
+### ☀️ Daytime, Companion & Settlement Mobs (12)
 1. **`Pig`** — Plump pink body, beveled snout, blush cheeks, 4 hooves, helical curly tail.
 2. **`Dog`** — Guard Dog with mahogany/obsidian coat, 8-spike studded collar, fangs & bushy tail.
 3. **`Cow`** — Dairy cow with black spots, pink muzzle, udder, curved horns & tufted tail.
@@ -440,12 +558,14 @@ All **14 custom 3D mobs** sculpted in Blender are integrated with distinct AI, p
 8. **`Chicken`** — Farm chicken with red comb, flapping wings & gentle flutter fall.
 9. **`Wolf`** — Aggressive Dire Wolf with dorsal hackles, glowing red eyes & snarling fangs.
 10. **`Monkey`** — Feral Mandrill Ape with war-paint ridges, 4 saber fangs & clawed fists.
+11. **`Villager`** — Resident elder with folded-arms posture, brown wool robe, emerald belt buckle, unibrow & long protruding nose.
+12. **`VillagerFemale`** — Village artisan with styled hair braids, collar trim, and working teal apron.
 
 ### 🌙 Night Horror Hostile Mobs (4)
-11. **`ShadowStalker`** — Towering Wendigo with bleached stag skull, crimson void eyes, glowing heart core & bone-scythe claws.
-12. **`BloodCrawler`** — Abyssal Spider with metallic chitin thorax, swollen blood-sac abdomen, 8 crimson eyes & venom mandibles.
-13. **`GrimWraith`** — Hooded Soul Reaper with soul-fire chest vortex, scythe slash, skeleton summoning & channeled soul steal.
-14. **`FleshGhoul`** — Hulking Mutant Crawler with asymmetric gore shoulder, 6 erupting dorsal bone spikes, split mandible jaws & bone-blade arms.
+13. **`ShadowStalker`** — Towering Wendigo with bleached stag skull, crimson void eyes, glowing heart core & bone-scythe claws.
+14. **`BloodCrawler`** — Abyssal Spider with metallic chitin thorax, swollen blood-sac abdomen, 8 crimson eyes & venom mandibles.
+15. **`GrimWraith`** — Hooded Soul Reaper with soul-fire chest vortex, scythe slash, skeleton summoning & channeled soul steal.
+16. **`FleshGhoul`** — Hulking Mutant Crawler with asymmetric gore shoulder, 6 erupting dorsal bone spikes, split mandible jaws & bone-blade arms.
 
 ---
 
