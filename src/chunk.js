@@ -198,18 +198,29 @@ export class VoxelChunk {
       }
     }
 
-    for (const [key, modValue] of this.world.modifiedBlocks.entries()) {
-      const [wx, , wz] = this.world.parseKey(key);
-      if (
-        wx >= this.startX &&
-        wx < this.startX + CHUNK_SIZE &&
-        wz >= this.startZ &&
-        wz < this.startZ + CHUNK_SIZE
-      ) {
+    const chunkDiffs = this.world.modifiedBlocksByChunk?.get(this.world.chunkKey(this.chunkX, this.chunkZ));
+    if (chunkDiffs) {
+      for (const [key, modValue] of chunkDiffs.entries()) {
         if (modValue === null) {
           this.blocks.delete(key);
         } else {
           this.blocks.set(key, modValue);
+        }
+      }
+    } else if (this.world.modifiedBlocks) {
+      for (const [key, modValue] of this.world.modifiedBlocks.entries()) {
+        const [wx, , wz] = this.world.parseKey(key);
+        if (
+          wx >= this.startX &&
+          wx < this.startX + CHUNK_SIZE &&
+          wz >= this.startZ &&
+          wz < this.startZ + CHUNK_SIZE
+        ) {
+          if (modValue === null) {
+            this.blocks.delete(key);
+          } else {
+            this.blocks.set(key, modValue);
+          }
         }
       }
     }

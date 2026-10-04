@@ -104,6 +104,9 @@ export function deserializeGameState(
       }
     }
   }
+  if (typeof world.rebuildModifiedBlocksByChunk === 'function') {
+    world.rebuildModifiedBlocksByChunk();
+  }
 
   if (data.player && Array.isArray(data.player.position)) {
     const [px, py, pz] = data.player.position;

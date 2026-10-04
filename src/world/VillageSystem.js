@@ -70,9 +70,9 @@ export class VillageSystem {
           const rz = rot === 1 ? fx : rot === 2 ? (fd - 1) - fz : rot === 3 ? (fw - 1) - fx : fz;
           const bx = structWorldX + rx;
           const bz = structWorldZ + rz;
-          for (let fy = structGroundY - 3; fy <= structGroundY; fy++) {
+          for (let fy = structGroundY - 2; fy <= structGroundY; fy++) {
             if (!this.world.getBlock(bx, fy, bz)) {
-              this.world.setBlock(bx, fy, bz, 'cobblestone');
+              this.world.setStructureBlock(bx, fy, bz, 'cobblestone');
             }
           }
         }
@@ -98,7 +98,7 @@ export class VillageSystem {
         const wy = structGroundY + dy;
         const wz = structWorldZ + rz;
 
-        this.world.setBlock(wx, wy, wz, blockType);
+        this.world.setStructureBlock(wx, wy, wz, blockType);
       }
     }
 
@@ -114,6 +114,11 @@ export class VillageSystem {
 
     // 4. Construct Ancient Caldera Dragon Portal at the edge of the village
     this._buildCalderaPortal(originX + 94, baseGroundY, originZ + 36);
+
+    // Flush any loaded chunks that had structure blocks placed in them
+    if (typeof this.world.flushDirtyChunks === 'function') {
+      this.world.flushDirtyChunks();
+    }
 
     // 5. Populate village with Villagers and Female Villagers
     if (this.mobsManager) {
@@ -146,11 +151,10 @@ export class VillageSystem {
         for (let z = minZ; z <= maxZ; z++) {
           const sy = Math.max(16, this.world.getSurfaceHeight(x, z));
           const blockType = (x + z) % 3 === 0 ? 'gravel' : 'cobblestone';
-          this.world.setBlock(x, sy, z, blockType);
-          // Clear 3 blocks of air above path
-          this.world.setBlock(x, sy + 1, z, null);
-          this.world.setBlock(x, sy + 2, z, null);
-          this.world.setBlock(x, sy + 3, z, null);
+          this.world.setStructureBlock(x, sy, z, blockType);
+          // Clear 2 blocks of air above path
+          this.world.setStructureBlock(x, sy + 1, z, null);
+          this.world.setStructureBlock(x, sy + 2, z, null);
         }
       }
     }
@@ -173,11 +177,11 @@ export class VillageSystem {
 
       // 1. Build tall wooden pole (5 blocks of wood)
       for (let y = 0; y <= 5; y++) {
-        this.world.setBlock(fx, fy + y, fz, 'pine_log');
+        this.world.setStructureBlock(fx, fy + y, fz, 'pine_log');
       }
       // Golden finial on top
-      this.world.setBlock(fx, fy + 6, fz, 'gold_ore');
-      this.world.setBlock(fx, fy + 7, fz, 'torch');
+      this.world.setStructureBlock(fx, fy + 6, fz, 'gold_ore');
+      this.world.setStructureBlock(fx, fy + 7, fz, 'torch');
 
       // 2. High-detail 3D Clan Banner in the Three.js scene
       const bannerGroup = new THREE.Group();
@@ -239,10 +243,10 @@ export class VillageSystem {
         const wz = pz;
 
         if (isBorder) {
-          this.world.setBlock(wx, wy, wz, 'obsidian');
+          this.world.setStructureBlock(wx, wy, wz, 'obsidian');
         } else {
           // Shimmering mystical portal interior (gem_ore glowing frame)
-          this.world.setBlock(wx, wy, wz, 'gem_ore');
+          this.world.setStructureBlock(wx, wy, wz, 'gem_ore');
         }
       }
     }
@@ -250,13 +254,13 @@ export class VillageSystem {
     // Portal Platform & Warning Torches
     for (let dx = -1; dx <= 4; dx++) {
       for (let dz = -2; dz <= 2; dz++) {
-        this.world.setBlock(px + dx, py - 1, pz + dz, 'stone_bricks');
+        this.world.setStructureBlock(px + dx, py - 1, pz + dz, 'stone_bricks');
       }
     }
-    this.world.setBlock(px - 1, py, pz - 1, 'torch');
-    this.world.setBlock(px - 1, py, pz + 1, 'torch');
-    this.world.setBlock(px + 4, py, pz - 1, 'torch');
-    this.world.setBlock(px + 4, py, pz + 1, 'torch');
+    this.world.setStructureBlock(px - 1, py, pz - 1, 'torch');
+    this.world.setStructureBlock(px - 1, py, pz + 1, 'torch');
+    this.world.setStructureBlock(px + 4, py, pz - 1, 'torch');
+    this.world.setStructureBlock(px + 4, py, pz + 1, 'torch');
 
     // Portal Entry Trigger Bounds (Player walks through center)
     this.portalBounds = {

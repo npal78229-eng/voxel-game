@@ -92,7 +92,6 @@ function setDefaultSpawn() {
 }
 
 setDefaultSpawn();
-world.updateChunks(camera.position, true);
 
 // 6. DDA VOXEL RAYCASTER & WIREFRAME HIGHLIGHTER
 const highlighter = new VoxelTargetHighlighter(scene);
@@ -114,13 +113,17 @@ const lightning = new LightningSystem(scene, world, mobs, sfx);
 const dragonArena = new DragonArenaSystem(scene, camera, renderer);
 const villageSystem = new VillageSystem(world, scene, mobs);
 
-// Spawn initial animal herds around player's resolved spawn coordinates
-mobs.spawnInitialHerds(camera.position.x, camera.position.z);
-
 // Generate complete Village v3 with Clan Flags and Ancient Caldera Portal next to player spawn
+// (Registered into chunk diff index in ~10ms before chunk meshing so all chunks mesh once without freeze)
 const vOriginX = Math.round(camera.position.x) + 12;
 const vOriginZ = Math.round(camera.position.z) + 10;
 villageSystem.generateVillage(vOriginX, vOriginZ);
+
+// Now mesh spawn chunks (immediate center chunks now naturally include village blocks!)
+world.updateChunks(camera.position, true);
+
+// Spawn initial animal herds around player's resolved spawn coordinates
+mobs.spawnInitialHerds(camera.position.x, camera.position.z);
 
 // 9. PLAYER HEALTH (10 Hearts = 20 HP) & HUNGER (10 Pips = 20) (Phase U5.6 & Task F1)
 const playerStats = {

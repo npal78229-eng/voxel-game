@@ -264,6 +264,8 @@ export class VoxelWorld {
     this.inFlightKeys = new Set();
 
     this.modifiedBlocks = new Map();
+    this.modifiedBlocksByChunk = new Map();
+    this.dirtyChunksToRemesh = new Set();
 
     this.lastPlayerChunkX = null;
     this.lastPlayerChunkZ = null;
@@ -346,7 +348,7 @@ export class VoxelWorld {
         chunkX: next.chunkX,
         chunkZ: next.chunkZ,
         seed: this.seed,
-        diffs: Array.from(this.modifiedBlocks.entries()),
+        diffs: this.getDiffsForChunk(next.chunkX, next.chunkZ),
         caveXRay: Boolean(this.caveXRayEnabled),
       });
     }
@@ -367,6 +369,7 @@ export class VoxelWorld {
     this.inFlightKeys.clear();
     this.lastPlayerChunkX = null;
     this.lastPlayerChunkZ = null;
+    this.rebuildModifiedBlocksByChunk();
     this.updateChunks(playerPosition, true);
   }
 
@@ -397,6 +400,66 @@ export class VoxelWorld {
   getChunkAtWorld(wx, wz) {
     const { chunkX, chunkZ } = this.worldToChunkCoords(wx, wz);
     return this.chunks.get(this.chunkKey(chunkX, chunkZ)) || null;
+  }
+
+  getDiffsForChunk(chunkX, chunkZ) {
+    const cKey = this.chunkKey(chunkX, chunkZ);
+    const chunkDiffs = this.modifiedBlocksByChunk.get(cKey);
+    return chunkDiffs ? Array.from(chunkDiffs.entries()) : [];
+  }
+
+  setStructureBlock(wx, wy, wz, blockType) {
+    const x = Math.floor(wx);
+    const y = Math.floor(wy);
+    const z = Math.floor(wz);
+    const key = this.coordKey(x, y, z);
+    const { chunkX, chunkZ } = this.worldToChunkCoords(x, z);
+    const cKey = this.chunkKey(chunkX, chunkZ);
+
+    if (blockType === null) {
+      this.modifiedBlocks.set(key, null);
+    } else {
+      this.modifiedBlocks.set(key, blockType);
+    }
+
+    let chunkDiffs = this.modifiedBlocksByChunk.get(cKey);
+    if (!chunkDiffs) {
+      chunkDiffs = new Map();
+      this.modifiedBlocksByChunk.set(cKey, chunkDiffs);
+    }
+    chunkDiffs.set(key, blockType);
+
+    const chunk = this.chunks.get(cKey);
+    if (chunk) {
+      if (blockType === null) {
+        chunk.blocks.delete(key);
+      } else {
+        chunk.blocks.set(key, blockType);
+      }
+      this.dirtyChunksToRemesh.add(chunk);
+    }
+  }
+
+  flushDirtyChunks() {
+    for (const chunk of this.dirtyChunksToRemesh) {
+      chunk.rebuildMesh();
+    }
+    this.dirtyChunksToRemesh.clear();
+  }
+
+  rebuildModifiedBlocksByChunk() {
+    this.modifiedBlocksByChunk.clear();
+    for (const [key, blockType] of this.modifiedBlocks.entries()) {
+      const [wx, , wz] = this.parseKey(key);
+      const { chunkX, chunkZ } = this.worldToChunkCoords(wx, wz);
+      const cKey = this.chunkKey(chunkX, chunkZ);
+      let chunkDiffs = this.modifiedBlocksByChunk.get(cKey);
+      if (!chunkDiffs) {
+        chunkDiffs = new Map();
+        this.modifiedBlocksByChunk.set(cKey, chunkDiffs);
+      }
+      chunkDiffs.set(key, blockType);
+    }
   }
 
   getSurfaceHeight(wx, wz) {
@@ -474,6 +537,15 @@ export class VoxelWorld {
     }
 
     this.modifiedBlocks.set(key, blockType);
+    const { chunkX, chunkZ } = this.worldToChunkCoords(x, z);
+    const cKey = this.chunkKey(chunkX, chunkZ);
+    let chunkDiffs = this.modifiedBlocksByChunk.get(cKey);
+    if (!chunkDiffs) {
+      chunkDiffs = new Map();
+      this.modifiedBlocksByChunk.set(cKey, chunkDiffs);
+    }
+    chunkDiffs.set(key, blockType);
+
     chunk.blocks.set(key, blockType);
     chunk.rebuildMesh();
     this._rebuildNeighborChunksIfOnBorder(x, z, chunk);
@@ -506,6 +578,15 @@ export class VoxelWorld {
     }
 
     this.modifiedBlocks.set(key, null);
+    const { chunkX: rcX, chunkZ: rcZ } = this.worldToChunkCoords(x, z);
+    const rcKey = this.chunkKey(rcX, rcZ);
+    let rChunkDiffs = this.modifiedBlocksByChunk.get(rcKey);
+    if (!rChunkDiffs) {
+      rChunkDiffs = new Map();
+      this.modifiedBlocksByChunk.set(rcKey, rChunkDiffs);
+    }
+    rChunkDiffs.set(key, null);
+
     chunk.blocks.delete(key);
 
     // Remove unsupported plant on top if the supporting block was removed
