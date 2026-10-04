@@ -137,6 +137,27 @@ export class DragonArenaSystem {
       g.add(eMesh);
       this.embers.push(eMesh);
     }
+
+    // 7. Atmospheric Calamity Lighting (Self-Contained for 60 FPS Boss Fight)
+    const ambientLight = new THREE.AmbientLight(0x1a2e1c, 1.4);
+    const moonLight = new THREE.DirectionalLight(0x55ff77, 2.2);
+    moonLight.position.set(25, 45, 20);
+    const lavaCoreLight = new THREE.PointLight(0x39ff14, 3.5, 75);
+    lavaCoreLight.position.set(0, 4.0, 0);
+    g.add(ambientLight, moonLight, lavaCoreLight);
+
+    // 8. Return Caldera Gateway (Allows returning to Overworld anytime)
+    const returnPortalGeo = new THREE.CylinderGeometry(2.5, 2.8, 0.4, 16);
+    const returnPortal = new THREE.Mesh(returnPortalGeo, this.mats.toxicLava);
+    returnPortal.position.set(0, 0.2, 42);
+    const returnArchL = new THREE.Mesh(new THREE.BoxGeometry(0.8, 4.5, 0.8), this.mats.obsidian);
+    returnArchL.position.set(-1.8, 2.25, 42);
+    const returnArchR = new THREE.Mesh(new THREE.BoxGeometry(0.8, 4.5, 0.8), this.mats.obsidian);
+    returnArchR.position.set(1.8, 2.25, 42);
+    const returnLintel = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.8, 0.8), this.mats.obsidian);
+    returnLintel.position.set(0, 4.5, 42);
+    g.add(returnPortal, returnArchL, returnArchR, returnLintel);
+    this.returnPortalPos = new THREE.Vector3(0, 1.0, 42);
   }
 
   buildThreeHeadedDragon() {

@@ -875,6 +875,89 @@ export function build_soul_skeleton() {
   return c.finalize();
 }
 
+// ==============================================================================
+// 16. VILLAGER (Classic Friendly Minecraft Villager with folded arms, robe & nose)
+// ==============================================================================
+export function build_villager() {
+  const c = createMobContext(0.48);
+  const m_skin = get_mat('Villager_Skin', [0.82, 0.60, 0.48, 1.0], 0.65);
+  const m_robe = get_mat('Villager_Robe_Brown', [0.38, 0.24, 0.16, 1.0], 0.85);
+  const m_robe_trim = get_mat('Villager_Robe_Trim', [0.28, 0.18, 0.12, 1.0], 0.80);
+  const m_belt = get_mat('Villager_Belt_Emerald', [0.12, 0.68, 0.28, 1.0], 0.40, 0.1, 0.8);
+  const m_nose = get_mat('Villager_Nose', [0.75, 0.52, 0.42, 1.0], 0.60);
+  const m_unibrow = get_mat('Villager_Brow', [0.22, 0.15, 0.10, 1.0], 0.85);
+  const m_eye_green = get_mat('Villager_Eye_Green', [0.15, 0.58, 0.22, 1.0], 0.2, 0, 1.2);
+  const m_shoes = get_mat('Villager_Shoe', [0.16, 0.12, 0.10, 1.0], 0.8);
+
+  // Head and Features
+  c.add_sphere('Villager_Head', [0.0, 0.0, 1.70], [0.34, 0.32, 0.38], m_skin);
+  c.add_sphere('Villager_Nose', [0.35, 0.0, 1.58], [0.12, 0.08, 0.18], m_nose);
+  c.add_cylinder('Villager_Unibrow', [0.28, 0.0, 1.78], [0.04, 0.04, 0.42], m_unibrow, [rad(90), 0, 0]);
+  c.add_sphere('Villager_Eye_L', [0.28, 0.11, 1.68], [0.05, 0.05, 0.05], m_eye_green);
+  c.add_sphere('Villager_Eye_R', [0.28, -0.11, 1.68], [0.05, 0.05, 0.05], m_eye_green);
+
+  // Body & Robe
+  c.add_cylinder('Villager_Robe', [0.0, 0.0, 1.05], [0.35, 0.37, 0.88], m_robe);
+  c.add_cylinder('Villager_Belt', [0.0, 0.0, 0.98], [0.37, 0.39, 0.14], m_belt);
+
+  // Folded Arms
+  c.add_cylinder('Villager_FoldedArms_Middle', [0.26, 0.0, 1.15], [0.11, 0.11, 0.52], m_robe, [rad(90), 0, 0]);
+  c.add_sphere('Villager_Hand_L', [0.26, 0.18, 1.15], [0.075, 0.075, 0.075], m_skin);
+  c.add_sphere('Villager_Hand_R', [0.26, -0.18, 1.15], [0.075, 0.075, 0.075], m_skin);
+  c.add_cylinder('Villager_Sleeve_L', [0.10, 0.28, 1.25], [0.11, 0.11, 0.36], m_robe, [0, rad(25), 0]);
+  c.add_cylinder('Villager_Sleeve_R', [0.10, -0.28, 1.25], [0.11, 0.11, 0.36], m_robe, [0, rad(25), 0]);
+
+  // Legs & Feet
+  for (const [s, ys] of [['L', 1], ['R', -1]]) {
+    c.add_cylinder(`Villager_Leg_${s}`, [0.0, ys * 0.14, 0.38], [0.11, 0.11, 0.70], m_robe_trim);
+    c.add_sphere(`Villager_Foot_${s}`, [0.06, ys * 0.14, 0.06], [0.13, 0.10, 0.08], m_shoes);
+  }
+
+  return c.finalize();
+}
+
+// ==============================================================================
+// 17. VILLAGER FEMALE (Village Artisan with styled hair, collar, and apron)
+// ==============================================================================
+export function build_villager_female() {
+  const c = createMobContext(0.48);
+  const m_skin = get_mat('VillagerF_Skin', [0.85, 0.64, 0.52, 1.0], 0.65);
+  const m_hair = get_mat('VillagerF_Hair', [0.26, 0.14, 0.08, 1.0], 0.75);
+  const m_robe = get_mat('VillagerF_Robe', [0.42, 0.28, 0.20, 1.0], 0.85);
+  const m_apron = get_mat('VillagerF_Apron', [0.18, 0.48, 0.52, 1.0], 0.75);
+  const m_trim = get_mat('VillagerF_Trim', [0.78, 0.72, 0.65, 1.0], 0.70);
+  const m_nose = get_mat('VillagerF_Nose', [0.78, 0.56, 0.45, 1.0], 0.60);
+  const m_eye = get_mat('VillagerF_Eye', [0.12, 0.52, 0.35, 1.0], 0.2, 0, 1.2);
+  const m_shoes = get_mat('VillagerF_Shoe', [0.20, 0.14, 0.12, 1.0], 0.8);
+
+  // Head, Hairstyles and Features
+  c.add_sphere('VillagerF_Head', [0.0, 0.0, 1.70], [0.32, 0.30, 0.36], m_skin);
+  c.add_sphere('VillagerF_Hair_Top', [-0.04, 0.0, 1.94], [0.34, 0.34, 0.20], m_hair);
+  c.add_sphere('VillagerF_Hair_Braid_L', [-0.08, 0.26, 1.60], [0.11, 0.09, 0.42], m_hair);
+  c.add_sphere('VillagerF_Hair_Braid_R', [-0.08, -0.26, 1.60], [0.11, 0.09, 0.42], m_hair);
+  c.add_sphere('VillagerF_Nose', [0.32, 0.0, 1.60], [0.10, 0.07, 0.15], m_nose);
+  c.add_sphere('VillagerF_Eye_L', [0.27, 0.10, 1.70], [0.048, 0.048, 0.048], m_eye);
+  c.add_sphere('VillagerF_Eye_R', [0.27, -0.10, 1.70], [0.048, 0.048, 0.048], m_eye);
+
+  // Robe, Collar & Artisan Apron
+  c.add_cylinder('VillagerF_Robe', [0.0, 0.0, 1.05], [0.34, 0.36, 0.88], m_robe);
+  c.add_cylinder('VillagerF_Apron', [0.10, 0.0, 1.02], [0.25, 0.28, 0.52], m_apron);
+  c.add_cylinder('VillagerF_Collar', [0.14, 0.0, 1.48], [0.22, 0.30, 0.08], m_trim);
+
+  // Folded Arms
+  c.add_cylinder('VillagerF_FoldedArms', [0.24, 0.0, 1.15], [0.10, 0.10, 0.48], m_robe, [rad(90), 0, 0]);
+  c.add_sphere('VillagerF_Hand_L', [0.24, 0.16, 1.15], [0.07, 0.07, 0.07], m_skin);
+  c.add_sphere('VillagerF_Hand_R', [0.24, -0.16, 1.15], [0.07, 0.07, 0.07], m_skin);
+
+  // Legs & Feet
+  for (const [s, ys] of [['L', 1], ['R', -1]]) {
+    c.add_cylinder(`VillagerF_Leg_${s}`, [0.0, ys * 0.13, 0.38], [0.10, 0.10, 0.70], m_robe);
+    c.add_sphere(`VillagerF_Foot_${s}`, [0.05, ys * 0.13, 0.06], [0.12, 0.09, 0.08], m_shoes);
+  }
+
+  return c.finalize();
+}
+
 export const BLENDER_MOB_BUILDERS = {
   Pig: build_pig,
   Snorter: build_pig,
@@ -892,6 +975,8 @@ export const BLENDER_MOB_BUILDERS = {
   Chicken: build_chicken,
   Cluck: build_chicken,
   Cat: build_cat,
+  Villager: build_villager,
+  VillagerFemale: build_villager_female,
   ShadowStalker: build_shadow_stalker,
   Shambler: build_shadow_stalker,
   BloodCrawler: build_blood_crawler,
@@ -916,6 +1001,8 @@ export const ALL_14_BLENDER_MOB_TYPES = [
   'Chicken',
   'Wolf',
   'Monkey',
+  'Villager',
+  'VillagerFemale',
   'ShadowStalker',
   'BloodCrawler',
   'GrimWraith',

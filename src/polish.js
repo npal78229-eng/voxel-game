@@ -627,20 +627,28 @@ export class PassiveMobManager {
     // Part 3 & 4: Climate Behavior & Flying Bird AI Engines
     this.birdAI = new BirdFlightAI(this.world, this.sfx);
     this.animalClimate = new AnimalClimateBehavior(this.world);
+    this.initialHerdsSpawned = false;
+  }
 
-    // Phase 4: Animals spawn in cohesive herds/flocks of 1 to 4!
-    // NEVER spawn night_monsters during daytime or at world generation.
+  /**
+   * Phase 4: Animals spawn in cohesive herds/flocks of 1 to 4 around the actual world spawn location.
+   * NEVER spawn night_monsters during daytime or at world generation.
+   */
+  spawnInitialHerds(originX = 8.0, originZ = 11.0) {
+    if (this.initialHerdsSpawned) return;
+    this.initialHerdsSpawned = true;
+
     const initialAnimalHerds = [
-      { type: 'Pig', x: 11.0, z: 4.5, count: rollAnimalGroupSize() },
-      { type: 'Cow', x: -3.5, z: 5.5, count: rollAnimalGroupSize() },
-      { type: 'Sheep', x: 17.5, z: 12.0, count: rollAnimalGroupSize() },
-      { type: 'Chicken', x: 3.5, z: 16.5, count: rollAnimalGroupSize() },
-      { type: 'Rabbit', x: 14.0, z: 18.0, count: rollAnimalGroupSize() },
-      { type: 'Dog', x: 6.8, z: 7.4, count: rollAnimalGroupSize() },
-      { type: 'Bird', x: 8.0, z: 14.0, count: rollAnimalGroupSize() },
+      { type: 'Pig', x: originX + 5.0, z: originZ - 4.5, count: rollAnimalGroupSize() },
+      { type: 'Cow', x: originX - 8.5, z: originZ - 3.5, count: rollAnimalGroupSize() },
+      { type: 'Sheep', x: originX + 9.5, z: originZ + 6.0, count: rollAnimalGroupSize() },
+      { type: 'Chicken', x: originX - 4.5, z: originZ + 8.5, count: rollAnimalGroupSize() },
+      { type: 'Rabbit', x: originX + 11.0, z: originZ + 12.0, count: rollAnimalGroupSize() },
+      { type: 'Dog', x: originX - 2.8, z: originZ - 6.4, count: rollAnimalGroupSize() },
+      { type: 'Bird', x: originX + 3.0, z: originZ + 4.0, count: rollAnimalGroupSize() },
       // Wild predators spawn in packs of 2
-      { type: 'Wolf', x: 24.0, z: 21.0, count: 2 },
-      { type: 'Monkey', x: -12.0, z: 22.0, count: 2 },
+      { type: 'Wolf', x: originX + 22.0, z: originZ + 18.0, count: 2 },
+      { type: 'Monkey', x: originX - 18.0, z: originZ + 16.0, count: 2 },
     ];
 
     for (const herd of initialAnimalHerds) {
@@ -648,7 +656,7 @@ export class PassiveMobManager {
     }
     this._recordSpawnLog(
       'INIT',
-      `Spawned ${this.mobs.length} animals in groups of 1-4 (max 4 per species within 32m)`
+      `Spawned ${this.mobs.length} animals in groups of 1-4 around (${originX.toFixed(1)}, ${originZ.toFixed(1)})`
     );
   }
 
@@ -684,7 +692,7 @@ export class PassiveMobManager {
     let targetSize = count !== null ? count : rollAnimalGroupSize();
 
     if (enforceDensityCap && (cfg.behaviorClass === 'passive' || cfg.reaction === 'panic')) {
-      const existing = this.countNearbySameSpecies(cfg.type, centerX, centerZ, SAME_SPECIES_RADIUS);
+      const existing = this.countNearbySameSpecies(cfg.id || cfg.type, centerX, centerZ, SAME_SPECIES_RADIUS);
       if (existing >= MAX_SAME_SPECIES_NEARBY) {
         return [];
       }
@@ -1147,13 +1155,13 @@ export class PassiveMobManager {
           }
         }
 
-        const sy = this.world.getSurfaceHeight(sx, sz);
+        const sy = getHighestSolidY(this.world, sx, sz);
         const groundBlock = this.world.getBlock(Math.floor(sx), sy, Math.floor(sz));
-        const air1 = this.world.getBlock(Math.floor(sx), sy + 1, Math.floor(sz));
-        const air2 = this.world.getBlock(Math.floor(sx), sy + 2, Math.floor(sz));
+        const solid1 = this.world.isSolidAt(Math.floor(sx), sy + 1, Math.floor(sz));
+        const solid2 = this.world.isSolidAt(Math.floor(sx), sy + 2, Math.floor(sz));
 
-        if (!groundBlock || groundBlock === 'water' || air1 || air2) {
-          this._recordSpawnLog('BLOCKED', 'Invalid ground or obstructed air above');
+        if (!groundBlock || groundBlock === 'water' || groundBlock === 'lava' || solid1 || solid2) {
+          this._recordSpawnLog('BLOCKED', 'Invalid ground or obstructed space above');
           continue;
         }
 
@@ -1658,7 +1666,20 @@ export class PassiveMobManager {
       // skip gravity and movement so it never falls through the world or gets buried.
       if (!isChunkLoadedAt(this.world, mob.basePos.x, mob.basePos.z)) {
         mob.velocityY = 0;
+        mob._chunkWasUnloaded = true;
         continue;
+      }
+
+      // If chunk was previously unloaded and just streamed in, snap mob safely to true surface
+      if (mob._chunkWasUnloaded) {
+        mob._chunkWasUnloaded = false;
+        const groundY = getHighestSolidY(this.world, mob.basePos.x, mob.basePos.z);
+        if (mob.basePos.y < groundY - 0.2 || mob.basePos.y > groundY + 10.0) {
+          mob.basePos.y = groundY + 0.5;
+          mob.group.position.y = mob.basePos.y;
+          mob.velocityY = 0;
+          mob.onGround = true;
+        }
       }
 
       // Tick jump cooldown and sidestep timer
@@ -2010,7 +2031,13 @@ export class PassiveMobManager {
       }
 
       if (mob.headGroup) {
-        mob.headGroup.rotation.y = Math.sin(mob.animPhase * 0.55) * 0.08;
+        if (mob.spec.isVillager && horizDist <= 6.0) {
+          const lookYaw = Math.atan2(dx, dz);
+          const diffYaw = THREE.MathUtils.euclideanModulo(lookYaw - mob.yaw + Math.PI, Math.PI * 2) - Math.PI;
+          mob.headGroup.rotation.y = THREE.MathUtils.clamp(diffYaw * 0.65, -0.75, 0.75);
+        } else {
+          mob.headGroup.rotation.y = Math.sin(mob.animPhase * 0.55) * 0.08;
+        }
       }
       if (mob.tailPivot) {
         mob.tailPivot.rotation.z = Math.sin(mob.animPhase * 2.0) * 0.35;

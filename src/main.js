@@ -22,6 +22,8 @@ import { TERRAIN_CONFIG, SEA_LEVEL, getBiome, BIOME_TABLE } from './noise.js';
 import { climateSystem } from './climate/ClimateSystem.js';
 import { FLUID_CONFIG } from './config/fluids.js';
 import { LightningSystem } from './weather/Lightning.js';
+import { DragonArenaSystem } from './DragonArenaSystem.js';
+import { VillageSystem } from './world/VillageSystem.js';
 
 // ============================================================================
 // Voxel Realms v2.0 — Complete Upgrade Suite (Phases U0–U7)
@@ -109,6 +111,16 @@ const sfx = new SoundEffectsManager();
 const particles = new BlockBreakParticles(scene);
 const mobs = new PassiveMobManager(scene, world, sfx, particles);
 const lightning = new LightningSystem(scene, world, mobs, sfx);
+const dragonArena = new DragonArenaSystem(scene, camera, renderer);
+const villageSystem = new VillageSystem(world, scene, mobs);
+
+// Spawn initial animal herds around player's resolved spawn coordinates
+mobs.spawnInitialHerds(camera.position.x, camera.position.z);
+
+// Generate complete Village v3 with Clan Flags and Ancient Caldera Portal next to player spawn
+const vOriginX = Math.round(camera.position.x) + 12;
+const vOriginZ = Math.round(camera.position.z) + 10;
+villageSystem.generateVillage(vOriginX, vOriginZ);
 
 // 9. PLAYER HEALTH (10 Hearts = 20 HP) & HUNGER (10 Pips = 20) (Phase U5.6 & Task F1)
 const playerStats = {
@@ -441,6 +453,19 @@ window.addEventListener('keydown', (event) => {
     return;
   }
 
+  // F8 toggles Dragon Boss Dimension (Calamity Caldera)
+  if (event.code === 'F8') {
+    event.preventDefault();
+    if (dragonArena.isActive) {
+      dragonArena.exitArena(controls);
+      showToast('Returned to Overworld from Calamity Caldera!');
+    } else {
+      dragonArena.enterArena(controls);
+      showToast('⚡ ENTERED DRAGON CALDERA! Defeat the Three-Headed Titan! (Press F8 to Exit)');
+    }
+    return;
+  }
+
   // '/' opens Command Console (Phase U6.6)
   if (event.key === '/' && !inventory.isOpen) {
     event.preventDefault();
@@ -575,6 +600,27 @@ function executeConsoleCommand(cmdStr) {
       `[OreStats (${oreReport.loadedChunks} chunks)] Coal:${c.coal_ore}(${a.coal_ore}/c) Iron:${c.iron_ore}(${a.iron_ore}/c) Gold:${c.gold_ore}(${a.gold_ore}/c) Gem:${c.gem_ore}(${a.gem_ore}/c)`,
       6500
     );
+  } else if (cmd === 'dragon' || cmd === 'caldera' || cmd === 'boss') {
+    if (dragonArena.isActive) {
+      dragonArena.exitArena(controls);
+      showToast('Returned to Overworld from Calamity Caldera!');
+    } else {
+      dragonArena.enterArena(controls);
+      showToast('⚡ ENTERED DRAGON CALDERA! Defeat the Three-Headed Titan! (Press F8 to Exit)');
+    }
+  } else if (cmd === 'village') {
+    if (dragonArena.isActive) {
+      dragonArena.exitArena(controls);
+    }
+    controls.playerPosition.set(villageSystem.villageOrigin.x + 22, 28, villageSystem.villageOrigin.z + 22);
+    showToast('Teleported to Village Town Square!');
+  } else if (cmd === 'villager') {
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    const tx = controls.playerPosition.x + forward.x * 4.0;
+    const tz = controls.playerPosition.z + forward.z * 4.0;
+    const type = parts[1] === 'female' || parts[1] === 'f' ? 'VillagerFemale' : 'Villager';
+    mobs.spawnMobAt(type, tx, tz);
+    showToast(`Spawned ${type} at crosshair!`);
   } else if (cmd === 'weather') {
     let w = (parts[1] || 'clear').toLowerCase();
     if (w === 'storm') w = 'thunderstorm';
@@ -988,6 +1034,22 @@ renderer.domElement.addEventListener('mousedown', (event) => {
     const isCrit = !controls.onGround && controls.velocityY < -1.5;
     const baseDmg = isCrit ? 6 : 4;
     const finalDmg = Math.max(1, Math.round(baseDmg * statusEffects.getMeleeDamageMultiplier()));
+
+    // Boss fight hit detection against the Three-Headed Emerald Titan
+    if (dragonArena && dragonArena.isActive && dragonArena.dragon) {
+      const dPos = dragonArena.dragon.position;
+      const toDragon = dPos.clone().sub(controls.playerPosition);
+      const dist = toDragon.length();
+      const lookDot = lookDirection.dot(toDragon.clone().normalize());
+      if (dist < 22.0 && lookDot > 0.40) {
+        dragonArena.damageBoss(finalDmg * 5);
+        sfx.playAttackHit();
+        particles.spawnBurst(dPos.x, dPos.y + 1, dPos.z, 'emerald_ore', 14);
+        showToast(`💥 Hit Three-Headed Titan! Boss HP: ${dragonArena.bossHP}/${dragonArena.bossMaxHP}`, 1800);
+        return;
+      }
+    }
+
     const hitMob = mobs.tryAttackMob(
       controls.playerPosition,
       lookDirection,
@@ -1158,6 +1220,26 @@ function animate() {
   }
   if (playerStats.slowTimer > 0) {
     playerStats.slowTimer = Math.max(0, playerStats.slowTimer - deltaTime);
+  }
+
+  // Check Ancient Caldera Portal entrance
+  if (villageSystem && !dragonArena.isActive) {
+    villageSystem.update(deltaTime);
+    if (villageSystem.checkPortalCollision(controls.playerPosition)) {
+      dragonArena.enterArena(controls);
+      showToast('⚡ ENTERED DRAGON CALDERA! Defeat the Three-Headed Titan! (Press F8 to Exit)');
+    }
+  }
+
+  // If in Dragon Boss Dimension: dedicate 100% frame budget to Boss Fight (Zero Overworld Overhead)
+  if (dragonArena && dragonArena.isActive) {
+    if (dragonArena.returnPortalPos && controls.playerPosition.distanceTo(dragonArena.returnPortalPos) < 2.5) {
+      dragonArena.exitArena(controls);
+      showToast('Returned to Overworld from Calamity Caldera!');
+    }
+    dragonArena.update(deltaTime, controls.playerPosition);
+    renderer.render(scene, camera);
+    return;
   }
 
   // 3. Update Sky, Animated Fluids, Mobs & Particles
