@@ -12,30 +12,30 @@ export const SPAWN_CONFIG = {
   MIN_SPAWN_DIST: 24, // Minimum distance from player for night monsters
   MAX_SPAWN_DIST: 64, // Maximum distance from player for night monsters
   SOFT_DESPAWN_DIST: 24, // Dawn gradual despawn distance threshold
-  IMMEDIATE_DESPAWN_DIST: 64, // Dawn immediate despawn distance threshold
-  HARD_DESPAWN_DIST: 96, // Absolute max distance for any dynamic mob
-  SPAWN_INTERVAL_SECONDS: 2.0, // Spawn loop timer interval (not every frame)
-  MAX_MOBS_PER_ATTEMPT: 3, // Max mobs spawned per 2-second tick
+  IMMEDIATE_DESPAWN_DIST: 32, // Dawn immediate despawn distance threshold
+  HARD_DESPAWN_DIST: 38, // Absolute max distance for dynamic mobs (prevents hoarding)
+  SPAWN_INTERVAL_SECONDS: 3.0, // Spawn loop timer interval
+  MAX_MOBS_PER_ATTEMPT: 1, // Controlled single mob evaluation
+  MAX_ACTIVE_SPECIES: 2, // Maximum 2 different species active simultaneously
+  MAX_DYNAMIC_MOBS: 7, // User requirement: Maximum 7 mobs active at a time!
+  MOB_LIFESPAN_SECONDS: 45, // Dynamic mob lifespan before peaceful rotation
   SUNLIGHT_BURN_DPS: 4.0, // Damage per second to burning night monsters at dawn
   DAWN_DESPAWN_RATE_PER_SEC: 2.0, // Non-burning night monsters despawned per second at dawn
-  ANIMAL_GROUP_SIZE: [ANIMAL_GROUP_MIN, ANIMAL_GROUP_MAX], // Animals spawn in random groups of 1 to 4
+  ANIMAL_GROUP_SIZE: [1, 2], // Small focused animal clusters
   CAPS: {
-    passive: 28,
-    neutral: 6,
-    wild_predator: 8,
-    night_monster: 12,
-    global: 54,
+    passive: 4,
+    neutral: 2,
+    wild_predator: 2,
+    night_monster: 4,
+    global: 7, // Hard cap of 7 dynamic mobs
   },
   NIGHT_MONSTER_POOL: [
     'ShadowStalker',
     'BloodCrawler',
     'FleshGhoul',
-    'Hexcaster',
-    'Bonewalker',
-    'GrimWraith',
   ],
   WILD_PREDATOR_POOL: ['Wolf', 'Monkey'],
-  PASSIVE_POOL: ['Pig', 'Cow', 'Sheep', 'Rabbit', 'Bird', 'Cat', 'Chicken'],
+  PASSIVE_POOL: ['Pig', 'Cow', 'Sheep'],
 };
 
 import { climateSystem } from '../climate/ClimateSystem.js';

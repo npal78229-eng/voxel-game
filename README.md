@@ -659,3 +659,23 @@ Or build the standalone Windows `.exe` installer into `release/`:
 ```bash
 npm run app:dist
 ```
+
+---
+
+## ⚔️ v2.1 Update: Dynamic Mob Lifecycle, Combat Hitbox & Architectural Clearance
+
+### 1. Active Mob Combat Hitbox & Line-of-Sight Fix
+- **Raycast Solid Verification (`AttackRange.js`):** Resolved voxel rounding offset (+0.5 index error) that previously caused low-angle rays from shorter mobs (wolves, monkeys, crawlers) to intersect the ground plane on step 1. Non-solid decorative blocks (tall grass, flowers, mushrooms, saplings, torches, snow layers, fluids) are correctly bypassed using `world.isSolidAt`, allowing hostile mobs to initiate and land attacks.
+- **Combat Reach Expansion:** Increased melee reach from 1.0–1.2m up to 2.2–2.8m for predators and night monsters (`Wolf: 2.2m`, `ShadowStalker: 2.6m`, `BloodCrawler: 2.5m`, `FleshGhoul: 2.8m`, `SoulSkeleton: 2.4m`, `Dog: 2.2m`).
+- **Strike Forward Momentum:** Mobs maintain forward momentum (65% speed) during the strike telegraph instead of freezing motionless, ensuring swings connect naturally against a moving player.
+
+### 2. Mob Variety Throttling & 7-Mob Rotation Despawn
+- **Strict 7-Mob Hard Cap:** Dynamic mobs are capped to at most 7 active entities at any time to preserve laptop CPU and GPU headroom.
+- **Maximum 2 Active Dynamic Species:** When 2 distinct species are present in the region, the spawn engine restricts all new spawns to those 2 species, avoiding creature clutter.
+- **Rotation Despawning (`_runSpawnCycle`):** When the 7-mob threshold is reached and a new mob is ready to spawn, the engine automatically despawns the furthest or oldest unengaged mob (> 20m) to rotate in the fresh spawn.
+- **Lifespan Despawn:** Dynamic mobs unengaged in combat despawn peacefully after 45 seconds if beyond 20m from the player.
+
+### 3. Village Architectural Excavation & Anti-Clipping Foundation
+- **Envelope Excavation (`VillageSystem.js`):** Prior to placing blueprint structures, the building volume is excavated from floor level (`structGroundY + 1`) to roof height (`maxDy + 2`), clearing all natural terrain (hills, dirt, grass, trees) so blocks never clip or merge into walls, rooms, doors, or ceilings.
+- **Level Cobblestone Foundation:** Lays a continuous solid cobblestone floor at ground level and fills down 3 blocks into sloped terrain, eliminating floating structures and irregular ground.
+- **Strict 7-Villager Population Cap:** Exactly 7 articulated villagers inhabit the village with defined roles (Town Elder, Well Artisan, Market Merchant, Cottager, Carpenter, Blacksmith, Farmer), protected from the dynamic rotation despawner.

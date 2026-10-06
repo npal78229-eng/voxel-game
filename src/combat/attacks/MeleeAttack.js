@@ -29,7 +29,7 @@ export class MeleeAttack {
     if ((mob.attackPhase && mob.attackPhase !== 'IDLE') || mob.attackCooldown > 0) {
       return false;
     }
-    const startThreshold = Math.max(0.4, this.meleeRange - 0.18);
+    const startThreshold = this.meleeRange;
     if (!inMeleeRange(mob, target, startThreshold, this.reachY)) {
       return false;
     }
@@ -47,9 +47,9 @@ export class MeleeAttack {
 
   /**
    * Advances the 3-phase sequence:
-   * - WINDUP: mob stops moving and raises arms/head to telegraph attack.
+   * - WINDUP: mob telegraphs attack while tracking target.
    * - STRIKE: exact instant when timer hits 0; re-checks inMeleeRange & hasLineOfSight
-   *   at CURRENT positions. If player stepped out of range or behind wall -> MISS!
+   *   at CURRENT positions.
    * - COOLDOWN/RECOVERY: waits out cooldown before returning to IDLE.
    */
   update(dt, mob, target, world, onStrikeHit = null, onStrikeMiss = null) {
@@ -73,8 +73,8 @@ export class MeleeAttack {
         const stillInRange = inMeleeRange(
           mob,
           target,
-          this.meleeRange,
-          this.reachY
+          this.meleeRange + 0.65,
+          this.reachY + 0.5
         );
         const { from, to } = getCombatRayEndpoints(mob, target);
         const stillHasLOS = hasLineOfSight(world, from, to);

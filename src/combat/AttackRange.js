@@ -117,7 +117,7 @@ export function inMeleeRange(attacker, target, range, reachY = undefined) {
  * Solid blocks block line of sight.
  */
 export function hasLineOfSight(world, from, to) {
-  if (!world || typeof world.getBlock !== 'function') return true;
+  if (!world) return true;
 
   const x0 = Number(from.x) || 0;
   const y0 = Number(from.y) || 0;
@@ -131,28 +131,35 @@ export function hasLineOfSight(world, from, to) {
   const dz = z1 - z0;
   const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
   if (dist < 1e-4) return true;
+  // Close melee combat (within 2.2 blocks) has direct line of sight
+  if (dist <= 2.2) return true;
 
-  // Step along ray at 0.2-block intervals (plus exact voxel boundary crossings)
-  const steps = Math.max(4, Math.ceil(dist / 0.18));
+  // Step along ray at 0.25-block intervals
+  const steps = Math.max(3, Math.ceil(dist / 0.25));
   for (let i = 1; i < steps; i++) {
     const t = i / steps;
-    const px = x0 + dx * t;
-    const py = y0 + dy * t;
-    const pz = z0 + dz * t;
-    const block = world.getBlock(
-      Math.floor(px + 0.5),
-      Math.floor(py + 0.5),
-      Math.floor(pz + 0.5)
-    );
-    if (
-      block &&
-      block !== 'water' &&
-      block !== 'glass' &&
-      block !== 'leaves' &&
-      block !== 'birch_leaves' &&
-      block !== 'pine_leaves'
-    ) {
-      return false;
+    const px = Math.floor(x0 + dx * t);
+    const py = Math.floor(y0 + dy * t);
+    const pz = Math.floor(z0 + dz * t);
+
+    if (typeof world.isSolidAt === 'function') {
+      if (world.isSolidAt(px, py, pz)) {
+        const block = world.getBlock(px, py, pz);
+        if (block !== 'glass' && !block?.includes('leaves')) {
+          return false;
+        }
+      }
+    } else if (typeof world.getBlock === 'function') {
+      const block = world.getBlock(px, py, pz);
+      if (
+        block &&
+        block !== 'water' &&
+        block !== 'lava' &&
+        block !== 'glass' &&
+        !block.includes('leaves')
+      ) {
+        return false;
+      }
     }
   }
   return true;

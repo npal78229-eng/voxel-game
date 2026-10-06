@@ -638,17 +638,10 @@ export class PassiveMobManager {
     if (this.initialHerdsSpawned) return;
     this.initialHerdsSpawned = true;
 
+    // User constraint: Limit mob varieties; spawn only 2 distinct species initially
     const initialAnimalHerds = [
-      { type: 'Pig', x: originX + 5.0, z: originZ - 4.5, count: rollAnimalGroupSize() },
-      { type: 'Cow', x: originX - 8.5, z: originZ - 3.5, count: rollAnimalGroupSize() },
-      { type: 'Sheep', x: originX + 9.5, z: originZ + 6.0, count: rollAnimalGroupSize() },
-      { type: 'Chicken', x: originX - 4.5, z: originZ + 8.5, count: rollAnimalGroupSize() },
-      { type: 'Rabbit', x: originX + 11.0, z: originZ + 12.0, count: rollAnimalGroupSize() },
-      { type: 'Dog', x: originX - 2.8, z: originZ - 6.4, count: rollAnimalGroupSize() },
-      { type: 'Bird', x: originX + 3.0, z: originZ + 4.0, count: rollAnimalGroupSize() },
-      // Wild predators spawn in packs of 2
-      { type: 'Wolf', x: originX + 22.0, z: originZ + 18.0, count: 2 },
-      { type: 'Monkey', x: originX - 18.0, z: originZ + 16.0, count: 2 },
+      { type: 'Pig', x: originX + 5.0, z: originZ - 4.5, count: 2 },
+      { type: 'Sheep', x: originX + 9.5, z: originZ + 6.0, count: 2 },
     ];
 
     for (const herd of initialAnimalHerds) {
@@ -656,7 +649,7 @@ export class PassiveMobManager {
     }
     this._recordSpawnLog(
       'INIT',
-      `Spawned ${this.mobs.length} animals in groups of 1-4 around (${originX.toFixed(1)}, ${originZ.toFixed(1)})`
+      `Spawned initial herds (${this.mobs.length} animals) in 2 species around (${originX.toFixed(1)}, ${originZ.toFixed(1)})`
     );
   }
 
@@ -1109,118 +1102,130 @@ export class PassiveMobManager {
    * Task F2: Periodic Spawn Loop (runs every SPAWN_INTERVAL_SECONDS = 2.0s)
    */
   _runSpawnCycle(playerPosition, lookDirection, isNight) {
-    // Recount active mobs by behaviorClass
+    // 1. Separate villagers from dynamic mobs
+    const dynamicMobs = this.mobs.filter(
+      (m) => m && m.hp > 0 && !m.spec?.isVillager
+    );
+
+    // 2. Track distinct active dynamic species & behavior classes
+    const activeSpecies = new Set();
     const counts = {
       passive: 0,
       neutral: 0,
       wild_predator: 0,
       night_monster: 0,
     };
-    for (const m of this.mobs) {
-      if (m.hp > 0) {
-        const cls = m.spec.behaviorClass || 'passive';
-        counts[cls] = (counts[cls] || 0) + 1;
-      }
+    for (const m of dynamicMobs) {
+      activeSpecies.add(m.spec.type);
+      const cls = m.spec.behaviorClass || 'passive';
+      counts[cls] = (counts[cls] || 0) + 1;
     }
     this.spawnCountsByClass = counts;
 
-    if (this.mobs.length >= SPAWN_CONFIG.CAPS.global) {
-      this._recordSpawnLog('BLOCKED', `Global cap (${SPAWN_CONFIG.CAPS.global}) reached`);
-      return;
+    // 3. Dynamic rotation rule: when dynamic mobs reach 7, despawn the furthest / oldest unengaged mob
+    // to make room for fresh spawns ("every 7 mob spawn despawn some mob and than spawn another one")
+    if (dynamicMobs.length >= (SPAWN_CONFIG.CAPS?.global || 7)) {
+      let furthestMob = null;
+      let maxDistSq = 0;
+      for (const m of dynamicMobs) {
+        if (m.state === 'Chase' || m.provoked) continue;
+        const dx = m.group.position.x - playerPosition.x;
+        const dz = m.group.position.z - playerPosition.z;
+        const dSq = dx * dx + dz * dz;
+        if (dSq > maxDistSq) {
+          maxDistSq = dSq;
+          furthestMob = m;
+        }
+      }
+      if (!furthestMob) {
+        furthestMob = dynamicMobs.find((m) => m.state !== 'Chase') || dynamicMobs[0];
+      }
+      if (furthestMob) {
+        const idx = this.mobs.indexOf(furthestMob);
+        if (idx !== -1) {
+          this._removeMobAtIndex(idx);
+          this._recordSpawnLog(
+            'ROTATION_DESPAWN',
+            `Despawned distant ${furthestMob.spec.type} to maintain 7-mob limit`
+          );
+        }
+      } else {
+        return;
+      }
     }
 
-    // 1. Attempt Night Monster Spawns
+    // 4. Species variety cap: if 2 distinct species are already active, restrict spawn to those 2 species
+    const enforceSpeciesPool = (pool) => {
+      if (activeSpecies.size >= (SPAWN_CONFIG.MAX_ACTIVE_SPECIES || 2)) {
+        const matching = pool.filter((id) => activeSpecies.has(id));
+        if (matching.length > 0) return matching;
+        return Array.from(activeSpecies);
+      }
+      return pool;
+    };
+
+    // 5. Attempt Night Monster Spawns (Night only)
     if (!isNight) {
       this._recordSpawnLog('BLOCKED', 'night_monster skipped: daytime (isNight=false)');
-    } else if (counts.night_monster >= SPAWN_CONFIG.CAPS.night_monster) {
-      this._recordSpawnLog('BLOCKED', `night_monster cap (${SPAWN_CONFIG.CAPS.night_monster}) reached`);
-    } else {
-      let spawnedThisTick = 0;
-      for (let attempt = 0; attempt < 4 && spawnedThisTick < SPAWN_CONFIG.MAX_MOBS_PER_ATTEMPT; attempt++) {
-        const dist =
-          SPAWN_CONFIG.MIN_SPAWN_DIST +
-          Math.random() * (SPAWN_CONFIG.MAX_SPAWN_DIST - SPAWN_CONFIG.MIN_SPAWN_DIST);
-        const angle = Math.random() * Math.PI * 2;
-        const sx = playerPosition.x + Math.cos(angle) * dist;
-        const sz = playerPosition.z + Math.sin(angle) * dist;
+    } else if (counts.night_monster < (SPAWN_CONFIG.CAPS?.night_monster || 4)) {
+      const dist = 20 + Math.random() * 16;
+      const angle = Math.random() * Math.PI * 2;
+      const sx = playerPosition.x + Math.cos(angle) * dist;
+      const sz = playerPosition.z + Math.sin(angle) * dist;
 
-        // Avoid spawning inside player's forward view cone (dot > 0.55) if possible
-        if (lookDirection) {
-          const toSpotX = Math.cos(angle);
-          const toSpotZ = Math.sin(angle);
-          const dot = toSpotX * lookDirection.x + toSpotZ * lookDirection.z;
-          if (dot > 0.55 && attempt < 3) {
-            this._recordSpawnLog('BLOCKED', 'Spot inside player view cone');
-            continue;
-          }
-        }
+      const sy = getHighestSolidY(this.world, sx, sz);
+      const groundBlock = this.world.getBlock(Math.floor(sx), sy, Math.floor(sz));
+      const solid1 = this.world.isSolidAt(Math.floor(sx), sy + 1, Math.floor(sz));
+      const solid2 = this.world.isSolidAt(Math.floor(sx), sy + 2, Math.floor(sz));
 
-        const sy = getHighestSolidY(this.world, sx, sz);
-        const groundBlock = this.world.getBlock(Math.floor(sx), sy, Math.floor(sz));
-        const solid1 = this.world.isSolidAt(Math.floor(sx), sy + 1, Math.floor(sz));
-        const solid2 = this.world.isSolidAt(Math.floor(sx), sy + 2, Math.floor(sz));
-
-        if (!groundBlock || groundBlock === 'water' || groundBlock === 'lava' || solid1 || solid2) {
-          this._recordSpawnLog('BLOCKED', 'Invalid ground or obstructed space above');
-          continue;
-        }
-
-        const pool = SPAWN_CONFIG.NIGHT_MONSTER_POOL;
-        const chosenId = pool[Math.floor(Math.random() * pool.length)];
+      if (groundBlock && groundBlock !== 'water' && groundBlock !== 'lava' && !solid1 && !solid2) {
+        const eligiblePool = enforceSpeciesPool(SPAWN_CONFIG.NIGHT_MONSTER_POOL);
+        const chosenId = eligiblePool[Math.floor(Math.random() * eligiblePool.length)];
         const cfg = getMobConfig(chosenId);
         this.mobs.push(this._createMob(cfg, this.mobs.length, sx, sz));
-        spawnedThisTick++;
-        counts.night_monster++;
         this._recordSpawnLog(
           'SUCCESS',
           `Spawned ${chosenId} (night_monster) at ${dist.toFixed(1)}m`
         );
+        return;
       }
     }
 
-    // 2. Attempt Passive Animal Herd Spawns (Random 1 to 4, max 4 of same species within 32 blocks)
-    if (counts.passive < SPAWN_CONFIG.CAPS.passive) {
-      const dist = 16 + Math.random() * 20;
+    // 6. Attempt Passive Animal Spawns (Daytime only)
+    if (!isNight && counts.passive < (SPAWN_CONFIG.CAPS?.passive || 4)) {
+      const dist = 14 + Math.random() * 14;
       const angle = Math.random() * Math.PI * 2;
       const sx = playerPosition.x + Math.cos(angle) * dist;
       const sz = playerPosition.z + Math.sin(angle) * dist;
-      const pool = SPAWN_CONFIG.PASSIVE_POOL;
-      const chosenAnimal = pool[Math.floor(Math.random() * pool.length)];
-      const nearby = this.countNearbySameSpecies(chosenAnimal, sx, sz, SAME_SPECIES_RADIUS);
-      if (nearby >= MAX_SAME_SPECIES_NEARBY) {
-        this._recordSpawnLog(
-          'SKIP',
-          `Nearby cap (${MAX_SAME_SPECIES_NEARBY}) reached for ${chosenAnimal} within ${SAME_SPECIES_RADIUS}m`
-        );
-      } else {
-        const rawGroup = rollAnimalGroupSize();
-        const allowedGroup = Math.min(rawGroup, MAX_SAME_SPECIES_NEARBY - nearby);
-        if (allowedGroup > 0) {
-          const list = this.spawnMobGroup(chosenAnimal, sx, sz, allowedGroup, true);
-          if (list.length > 0) {
-            this._recordSpawnLog(
-              'SUCCESS',
-              `Spawned herd of ${list.length}x ${chosenAnimal} (passive, nearby was ${nearby}) at ${dist.toFixed(1)}m`
-            );
-          }
+      const eligiblePool = enforceSpeciesPool(SPAWN_CONFIG.PASSIVE_POOL);
+      const chosenAnimal = eligiblePool[Math.floor(Math.random() * eligiblePool.length)];
+
+      const sy = getHighestSolidY(this.world, sx, sz);
+      const groundBlock = this.world.getBlock(Math.floor(sx), sy, Math.floor(sz));
+      if (groundBlock && groundBlock !== 'water' && groundBlock !== 'lava') {
+        const list = this.spawnMobGroup(chosenAnimal, sx, sz, 1, false);
+        if (list.length > 0) {
+          this._recordSpawnLog(
+            'SUCCESS',
+            `Spawned ${chosenAnimal} (passive) at ${dist.toFixed(1)}m`
+          );
+          return;
         }
       }
     }
 
-    // 3. Attempt Wild Predator Pack Spawns (Groups of 3 or 4, Day or Night)
-    if (counts.wild_predator < SPAWN_CONFIG.CAPS.wild_predator) {
-      const dist = 22 + Math.random() * 24;
+    // 7. Attempt Predator Spawns (Day or Night, e.g. Wolf / Monkey)
+    if (counts.wild_predator < (SPAWN_CONFIG.CAPS?.wild_predator || 2)) {
+      const dist = 16 + Math.random() * 14;
       const angle = Math.random() * Math.PI * 2;
       const sx = playerPosition.x + Math.cos(angle) * dist;
       const sz = playerPosition.z + Math.sin(angle) * dist;
-      const biome = this.world.noise.getBiomeAt(sx, sz);
-      const predId =
-        biome.id === 'swamp' || biome.id === 'savanna' ? 'Monkey' : 'Wolf';
-      const packSize = 3 + Math.floor(Math.random() * 2); // 3 or 4
-      this.spawnMobGroup(predId, sx, sz, packSize);
+      const eligiblePool = enforceSpeciesPool(SPAWN_CONFIG.WILD_PREDATOR_POOL);
+      const predId = eligiblePool[Math.floor(Math.random() * eligiblePool.length)];
+      this.spawnMobGroup(predId, sx, sz, 1, false);
       this._recordSpawnLog(
         'SUCCESS',
-        `Spawned pack of ${packSize}x ${predId} (wild_predator) in ${biome.id} at ${dist.toFixed(1)}m`
+        `Spawned ${predId} (wild_predator) at ${dist.toFixed(1)}m`
       );
     }
   }
@@ -1341,9 +1346,25 @@ export class PassiveMobManager {
       const dz = playerPosition.z - mob.group.position.z;
       const horizDist = Math.sqrt(dx * dx + dz * dz);
 
-      if (horizDist > SPAWN_CONFIG.HARD_DESPAWN_DIST) {
+      // Despawn distant dynamic mobs (protect villagers)
+      if (horizDist > (SPAWN_CONFIG.HARD_DESPAWN_DIST || 38) && !mob.spec?.isVillager) {
         this._removeMobAtIndex(i);
         continue;
+      }
+
+      // Despawn idle/old dynamic mobs after lifespan threshold (protect villagers and fighting mobs)
+      if (!mob.spec?.isVillager) {
+        mob.lifeTimer = (mob.lifeTimer || 0) + deltaTime;
+        if (
+          !mob.provoked &&
+          mob.state !== 'Chase' &&
+          mob.attackPhase === 'IDLE' &&
+          mob.lifeTimer > (SPAWN_CONFIG.MOB_LIFESPAN_SECONDS || 45) &&
+          horizDist > 20.0
+        ) {
+          this._removeMobAtIndex(i);
+          continue;
+        }
       }
 
       // Part 4: Flying bird AI execution (zero-gravity 3D flight & flocking)
@@ -1407,8 +1428,8 @@ export class PassiveMobManager {
       let wantsToFight = false;
       if (mob.panicTimer <= 0) {
         if (bClass === 'wild_predator') {
-          if (canSeePlayer || horizDist < 5.0) {
-            mob.aggroMemoryTimer = mob.spec.loseInterestSeconds ?? 10.0;
+          if (canSeePlayer || horizDist < 14.0) {
+            mob.aggroMemoryTimer = mob.spec.loseInterestSeconds ?? 12.0;
           } else if (mob.aggroMemoryTimer > 0) {
             mob.aggroMemoryTimer -= deltaTime;
           }
@@ -1712,6 +1733,10 @@ export class PassiveMobManager {
       } else if (mob.state === 'SeekShade' || mob.state === 'Chase') {
         moveX = Math.sin(mob.yaw) * spd * 1.2;
         moveZ = Math.cos(mob.yaw) * spd * 1.2;
+      } else if (mob.state === 'WindupStop') {
+        // Carry forward momentum during attack windup so strikes connect reliably
+        moveX = Math.sin(mob.yaw) * spd * 0.65;
+        moveZ = Math.cos(mob.yaw) * spd * 0.65;
       } else if (mob.state === 'Flee' || mob.state === 'Retreat') {
         moveX = -Math.sin(mob.yaw) * spd * 1.85;
         moveZ = -Math.cos(mob.yaw) * spd * 1.85;

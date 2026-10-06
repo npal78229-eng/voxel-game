@@ -58,19 +58,43 @@ export class VillageSystem {
       const fd = def.footprint?.[1] || 5;
       const rot = item.rotation || 0;
 
+      const actualW = rot === 1 || rot === 3 ? fd : fw;
+      const actualD = rot === 1 || rot === 3 ? fw : fd;
+
+      // Find max height of the structure in blueprint
+      let maxDy = 6;
+      for (const block of def.blocks) {
+        if (block[1] > maxDy) maxDy = block[1];
+      }
+
       // Calculate structure local ground level
       const structWorldX = originX + item.x;
       const structWorldZ = originZ + item.z;
-      const structGroundY = Math.max(16, Math.min(baseGroundY + 2, this.world.getSurfaceHeight(structWorldX + Math.floor(fw / 2), structWorldZ + Math.floor(fd / 2))));
+      const structGroundY = Math.max(
+        16,
+        Math.min(
+          baseGroundY + 2,
+          this.world.getSurfaceHeight(
+            structWorldX + Math.floor(actualW / 2),
+            structWorldZ + Math.floor(actualD / 2)
+          )
+        )
+      );
 
-      // Foundation layer underneath structure to avoid floating buildings on sloped ground
-      for (let fx = 0; fx < fw; fx++) {
-        for (let fz = 0; fz < fd; fz++) {
-          const rx = rot === 1 ? (fd - 1) - fz : rot === 2 ? (fw - 1) - fx : rot === 3 ? fz : fx;
-          const rz = rot === 1 ? fx : rot === 2 ? (fd - 1) - fz : rot === 3 ? (fw - 1) - fx : fz;
+      // 1. Excavate & clear pre-existing natural terrain inside the structure volume
+      // so terrain voxels (dirt, grass, trees) never merge into walls, rooms, or roofs
+      for (let rx = 0; rx < actualW; rx++) {
+        for (let rz = 0; rz < actualD; rz++) {
           const bx = structWorldX + rx;
           const bz = structWorldZ + rz;
-          for (let fy = structGroundY - 2; fy <= structGroundY; fy++) {
+          // Clear all blocks above ground up to roof height + 2
+          for (let dy = 1; dy <= maxDy + 2; dy++) {
+            this.world.setStructureBlock(bx, structGroundY + dy, bz, null);
+          }
+          // Level floor at ground level
+          this.world.setStructureBlock(bx, structGroundY, bz, 'cobblestone');
+          // Solid foundation underneath to avoid floating buildings on sloped ground
+          for (let fy = structGroundY - 3; fy < structGroundY; fy++) {
             if (!this.world.getBlock(bx, fy, bz)) {
               this.world.setStructureBlock(bx, fy, bz, 'cobblestone');
             }
@@ -78,7 +102,7 @@ export class VillageSystem {
         }
       }
 
-      // Place structure blocks
+      // 2. Place blueprint structure blocks cleanly
       for (const block of def.blocks) {
         const [dx, dy, dz, blockType] = block;
         let rx = dx;
@@ -289,21 +313,24 @@ export class VillageSystem {
 
   _populateVillagers(originX, originZ, baseGroundY) {
     const villagerSpots = [
-      { x: originX + 22, z: originZ + 8, type: 'Villager' }, // Town Hall Elder
-      { x: originX + 24, z: originZ + 24, type: 'VillagerFemale' }, // Central Well Artisan
-      { x: originX + 20, z: originZ + 26, type: 'Villager' }, // Market Trader
-      { x: originX + 14, z: originZ + 16, type: 'VillagerFemale' }, // House A
-      { x: originX + 38, z: originZ + 16, type: 'Villager' }, // House B
-      { x: originX + 68, z: originZ + 24, type: 'Villager' }, // Smithy Craftsman
-      { x: originX + 84, z: originZ + 26, type: 'VillagerFemale' }, // Clan House Champion
-      { x: originX + 32, z: originZ + 48, type: 'Villager' }, // Farm Tender
+      { x: originX + 22, z: originZ + 8, type: 'Villager', role: 'Town Elder' },
+      { x: originX + 24, z: originZ + 24, type: 'VillagerFemale', role: 'Well Artisan' },
+      { x: originX + 20, z: originZ + 26, type: 'Villager', role: 'Market Merchant' },
+      { x: originX + 14, z: originZ + 16, type: 'VillagerFemale', role: 'Cottager' },
+      { x: originX + 38, z: originZ + 16, type: 'Villager', role: 'Carpenter' },
+      { x: originX + 68, z: originZ + 24, type: 'Villager', role: 'Blacksmith' },
+      { x: originX + 32, z: originZ + 48, type: 'VillagerFemale', role: 'Farmer' },
     ];
 
+    const maxVillagers = 7;
+    let count = 0;
     for (const spot of villagerSpots) {
+      if (count >= maxVillagers) break;
       const topY = Math.max(16, this.world.getSurfaceHeight(spot.x, spot.z));
       const mob = this.mobsManager.spawnMobAt(spot.type, spot.x, spot.z);
       if (mob) {
-        console.log(`[VillageSystem] Spawned ${spot.type} at (${spot.x}, ${topY}, ${spot.z})`);
+        count++;
+        console.log(`[VillageSystem] Spawned villager #${count} (${spot.type} - ${spot.role}) at (${spot.x}, ${topY}, ${spot.z})`);
       }
     }
   }

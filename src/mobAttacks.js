@@ -427,8 +427,8 @@ export class NightMobCombatController {
         mob.group.position.z += Math.cos(mob.yaw) * 1.35;
       }
       const newGap = gapDistance(mob, playerTarget);
-      const maxReach = atk.range[1];
-      if (newGap <= maxReach && hasLOS) {
+      const maxReach = atk.range[1] + 0.6;
+      if (newGap <= maxReach && (newGap <= 2.2 || hasLOS)) {
         let dmg = atk.damage * NIGHT_MOB_DAMAGE_MULT;
         if (atk.staggerBonusMult && statusEffects?.hasEffect('stagger')) {
           dmg = Math.round(dmg * atk.staggerBonusMult);
