@@ -522,78 +522,109 @@ export class AtmosphericSkyEnclosure {
   }
 
   buildCloudLayers() {
-    const cloudMat = new THREE.MeshStandardMaterial({
-      color: 0x94a3b8,
-      roughness: 0.95,
-      metalness: 0.05,
+    // Soft, bright luminous puffy clouds matching the reel's open overcast sky
+    const cloudMat = new THREE.MeshLambertMaterial({
+      color: 0xffffff,
       transparent: true,
-      opacity: 0.72,
+      opacity: 0.84,
       depthWrite: false,
     });
 
-    const cloudGeo = new THREE.BoxGeometry(18, 5, 14);
+    // Tier 1: Flight Cruising Cloud Deck (Altitude 52-72m)
+    // 38 puffy multi-box cloud clusters scattered across flight airspace
+    for (let i = 0; i < 38; i++) {
+      const cluster = new THREE.Group();
+      const numPuffs = 3 + Math.floor(Math.random() * 3); // 3 to 5 overlapping boxes
+      const baseW = 16 + Math.random() * 14;
+      const baseH = 3.2 + Math.random() * 2.2;
+      const baseD = 12 + Math.random() * 10;
 
-    // Tier 1: Lower Cloud Deck (Altitude 34-44m)
-    for (let i = 0; i < 32; i++) {
-      const c = new THREE.Mesh(cloudGeo, cloudMat);
-      const angle = (i / 32) * Math.PI * 2;
-      const radius = 90 + Math.random() * 110;
-      c.position.set(
+      for (let p = 0; p < numPuffs; p++) {
+        const pw = baseW * (0.6 + Math.random() * 0.5);
+        const ph = baseH * (0.7 + Math.random() * 0.4);
+        const pd = baseD * (0.6 + Math.random() * 0.5);
+        const puff = new THREE.Mesh(new THREE.BoxGeometry(pw, ph, pd), cloudMat);
+        puff.position.set(
+          (Math.random() - 0.5) * baseW * 0.6,
+          (Math.random() - 0.5) * baseH * 0.3,
+          (Math.random() - 0.5) * baseD * 0.6
+        );
+        cluster.add(puff);
+      }
+
+      const angle = (i / 38) * Math.PI * 2 + Math.random() * 0.2;
+      const radius = 60 + Math.random() * 260;
+      cluster.position.set(
         Math.cos(angle) * radius,
-        34 + Math.random() * 8,
+        52 + Math.random() * 18,
         Math.sin(angle) * radius
       );
-      c.scale.set(1.0 + Math.random() * 1.5, 0.8 + Math.random() * 0.5, 1.0 + Math.random() * 1.5);
-      c.userData = { speed: 0.8 + Math.random() * 0.5, baseRadius: radius, angle: angle };
-      this.group.add(c);
-      this.cloudClusters.push(c);
+      cluster.userData = {
+        speed: 0.6 + Math.random() * 0.6,
+        baseX: cluster.position.x,
+        baseZ: cluster.position.z,
+        wrapRadius: 360,
+      };
+      this.group.add(cluster);
+      this.cloudClusters.push(cluster);
     }
 
-    // Tier 2: High Cloud Wisps (Altitude 95-115m)
-    const highCloudGeo = new THREE.BoxGeometry(28, 6, 20);
-    const highCloudMat = new THREE.MeshStandardMaterial({
-      color: 0x64748b,
-      roughness: 0.9,
+    // Tier 2: High Stratocumulus Ceiling (Altitude 115-145m)
+    const highCloudMat = new THREE.MeshLambertMaterial({
+      color: 0xedf2f7,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.70,
       depthWrite: false,
     });
 
-    for (let i = 0; i < 18; i++) {
-      const c = new THREE.Mesh(highCloudGeo, highCloudMat);
-      const angle = (i / 18) * Math.PI * 2;
-      const radius = 130 + Math.random() * 120;
-      c.position.set(
+    for (let i = 0; i < 24; i++) {
+      const cluster = new THREE.Group();
+      const w = 32 + Math.random() * 24;
+      const h = 4.5 + Math.random() * 2.5;
+      const d = 26 + Math.random() * 20;
+
+      const mainPuff = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), highCloudMat);
+      const subPuff = new THREE.Mesh(new THREE.BoxGeometry(w * 0.7, h * 0.8, d * 0.7), highCloudMat);
+      subPuff.position.set((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 12);
+      cluster.add(mainPuff, subPuff);
+
+      const angle = (i / 24) * Math.PI * 2;
+      const radius = 100 + Math.random() * 380;
+      cluster.position.set(
         Math.cos(angle) * radius,
-        100 + Math.random() * 15,
+        120 + Math.random() * 22,
         Math.sin(angle) * radius
       );
-      c.scale.set(1.2 + Math.random() * 1.2, 0.7, 1.2 + Math.random() * 1.2);
-      c.userData = { speed: 0.5 + Math.random() * 0.4, baseRadius: radius, angle: angle };
-      this.group.add(c);
-      this.cloudClusters.push(c);
+      cluster.userData = {
+        speed: 0.35 + Math.random() * 0.35,
+        baseX: cluster.position.x,
+        baseZ: cluster.position.z,
+        wrapRadius: 520,
+      };
+      this.group.add(cluster);
+      this.cloudClusters.push(cluster);
     }
   }
 
   buildDistantMountainHorizon() {
-    // 360-degree panoramic distant mountain silhouette ring at 420m radius
+    // 360-degree panoramic distant mountain silhouette ring at 520m radius
     const mountainGroup = new THREE.Group();
-    const mountainMat = new THREE.MeshBasicMaterial({
-      color: 0x161e28, // Matches dieselpunk horizon fog
+    const mountainMat = new THREE.MeshLambertMaterial({
+      color: 0x8296a6, // Soft atmospheric silver-blue mountain silhouette
     });
 
-    const numPeaks = 48;
+    const numPeaks = 56;
     for (let i = 0; i < numPeaks; i++) {
       const angle = (i / numPeaks) * Math.PI * 2;
-      const radius = 380 + (i % 3) * 25;
-      const h = 55 + ((i * 17) % 45);
-      const w = 45 + ((i * 11) % 35);
+      const radius = 520 + (i % 4) * 25;
+      const h = 75 + ((i * 23) % 65);
+      const w = 55 + ((i * 13) % 45);
 
-      const peakGeo = new THREE.ConeGeometry(w, h, 4);
+      const peakGeo = new THREE.ConeGeometry(w, h, 5);
       const peak = new THREE.Mesh(peakGeo, mountainMat);
       peak.position.set(
         Math.cos(angle) * radius,
-        h * 0.4,
+        h * 0.38,
         Math.sin(angle) * radius
       );
       peak.rotation.y = angle + Math.PI * 0.25;
@@ -607,22 +638,24 @@ export class AtmosphericSkyEnclosure {
   update(deltaTime, centerPos) {
     this.time += deltaTime;
 
-    // Follow center position so mountains and clouds stay consistent
+    // Follow center position so mountains and clouds stay infinite around camera/plane
     if (centerPos) {
-      if (this.mountainGroup) {
-        this.mountainGroup.position.set(centerPos.x, 0, centerPos.z);
-      }
+      this.group.position.x = centerPos.x;
+      this.group.position.z = centerPos.z;
     }
 
-    // Gentle cloud drifting
+    // Smooth cloud wind drifting with boundary wrapping
+    const windSpeedX = 4.2;
+    const windSpeedZ = 1.8;
     for (let i = 0; i < this.cloudClusters.length; i++) {
       const c = this.cloudClusters[i];
-      c.userData.angle += deltaTime * 0.008 * c.userData.speed;
-      const r = c.userData.baseRadius;
-      const cx = (centerPos ? centerPos.x : 0) + Math.cos(c.userData.angle) * r;
-      const cz = (centerPos ? centerPos.z : 0) + Math.sin(c.userData.angle) * r;
-      c.position.x = cx;
-      c.position.z = cz;
+      c.position.x += deltaTime * windSpeedX * c.userData.speed;
+      c.position.z += deltaTime * windSpeedZ * c.userData.speed;
+      const maxDist = c.userData.wrapRadius || 360;
+      if (c.position.x > maxDist) c.position.x -= maxDist * 2;
+      if (c.position.x < -maxDist) c.position.x += maxDist * 2;
+      if (c.position.z > maxDist) c.position.z -= maxDist * 2;
+      if (c.position.z < -maxDist) c.position.z += maxDist * 2;
     }
   }
 }
@@ -646,17 +679,17 @@ export class ReelPostProcessingStack {
     this.enabled = true;
     this.quality = 'high'; // 'low', 'medium', 'high'
 
-    // Parameter Controls
+    // Parameter Controls — Open, bright, and luminous with vibrant bloom
     this.params = {
-      bloomThreshold: 0.62,
-      bloomIntensity: 1.35,
-      bloomRadius: 1.15,
-      exposure: 1.08,
-      contrast: 1.18,
-      saturation: 0.88, // Muted dieselpunk saturation matching the reel
-      vignetteStrength: 0.68,
+      bloomThreshold: 0.68,
+      bloomIntensity: 1.15,
+      bloomRadius: 1.05,
+      exposure: 1.02,
+      contrast: 1.04,
+      saturation: 1.02,
+      vignetteStrength: 0.32,
       vignetteRoundness: 0.95,
-      grainIntensity: 0.045, // Subtle cinematic film grain
+      grainIntensity: 0.022, // Soft subtle cinematic grain
       colorGradeTeal: new THREE.Color(0x38bdf8),
       colorGradeOrange: new THREE.Color(0xca8a04),
     };
@@ -802,27 +835,23 @@ export class ReelPostProcessingStack {
           vec4 sceneColor = texture2D(tScene, vUv);
           vec4 bloomColor = texture2D(tBloom, vUv);
 
-          // Additive HDR bloom blending
+          // Additive HDR bloom blending for glowing cyan orbs and tracers
           vec3 color = sceneColor.rgb + bloomColor.rgb * uBloomIntensity;
 
           // Exposure adjustment
           color *= uExposure;
 
-          // Saturation
+          // Saturation preservation
           float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
           color = mix(vec3(luma), color, uSaturation);
 
-          // Dieselpunk Color Grading: cool teal shadow tints, high contrast
-          vec3 shadows = vec3(0.12, 0.18, 0.24); // Atmospheric teal-charcoal
-          color = mix(shadows, color, smoothstep(0.0, 0.45, luma));
+          // Filmic smooth contrast curve without shadow crushing
+          color = pow(max(color, vec3(0.0)), vec3(uContrast));
 
-          // Contrast curve
-          color = (color - 0.5) * uContrast + 0.5;
-
-          // Radial Vignette
+          // Subtle Radial Vignette
           vec2 uvOffset = (vUv - 0.5) * 2.0;
           float dist = dot(uvOffset, uvOffset);
-          float vignette = clamp(1.0 - dist * (uVignetteStrength * 0.45), 0.0, 1.0);
+          float vignette = clamp(1.0 - dist * (uVignetteStrength * 0.32), 0.0, 1.0);
           color *= vignette;
 
           // Subtle Film Grain

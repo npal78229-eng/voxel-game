@@ -26,23 +26,23 @@ import { DragonArenaSystem } from './DragonArenaSystem.js';
 import { VillageSystem } from './world/VillageSystem.js';
 import { StukaFlightSystem } from './StukaFlightSystem.js';
 import { SkyLeviathan } from './SkyLeviathan.js';
-import { ReelPostProcessingStack } from './shaders/ReelShaderSystem.js';
+import { ReelPostProcessingStack, AtmosphericSkyEnclosure } from './shaders/ReelShaderSystem.js';
 
 // ============================================================================
 // Voxel Realms v2.0 — Complete Upgrade Suite (Phases U0–U7)
 // ============================================================================
 
-// 1. SCENE
+// 1. SCENE — Luminous, wide-open silver-grey overcast sky from reference reel
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x7cc8f8);
-scene.fog = new THREE.FogExp2(0x7cc8f8, 0.011);
+scene.background = new THREE.Color(0xd2dce4);
+scene.fog = new THREE.FogExp2(0xd2dce4, 0.0016); // Crystal clear open visibility to 450m+
 
-// 2. CAMERA (Phase U0.3: near plane = 0.05 to prevent camera terrain near-clipping)
+// 2. CAMERA (Far plane 1200 for vast open mountain horizon and floating cloud decks)
 const camera = new THREE.PerspectiveCamera(
   75,
   window.innerWidth / window.innerHeight,
   0.05,
-  550
+  1200
 );
 
 // 3. RENDERER (Phase U0.3b: powerPreference 'high-performance', pixelRatio <= 2, SRGB)
@@ -118,9 +118,11 @@ const villageSystem = new VillageSystem(world, scene, mobs);
 const stukaFlight = new StukaFlightSystem(scene, camera, renderer, world);
 const skyLeviathan = new SkyLeviathan(scene, camera, renderer);
 const reelPostStack = new ReelPostProcessingStack(renderer, scene, camera);
+const skyEnclosure = new AtmosphericSkyEnclosure(scene);
 window.stukaFlight = stukaFlight;
 window.skyLeviathan = skyLeviathan;
 window.reelPostStack = reelPostStack;
+window.skyEnclosure = skyEnclosure;
 
 // Generate complete Village v3 with Clan Flags and Ancient Caldera Portal next to player spawn
 // (Registered into chunk diff index in ~10ms before chunk meshing so all chunks mesh once without freeze)
@@ -1474,6 +1476,12 @@ function animate() {
     controls.playerPosition.copy(stukaFlight.position);
     world.updateChunks(stukaFlight.position, false, stukaFlight.getForwardVector());
 
+    // Update Sunlight and Volumetric Clouds to follow aircraft position
+    lights.updateSunFollow(stukaFlight.position);
+    skyEnclosure.update(deltaTime, stukaFlight.position);
+    world.updateFluids(deltaTime);
+    sharedShaderUniforms.uTime.value += deltaTime;
+
     stukaFlight.update(deltaTime, skyLeviathan, (dmg, part) => {
       sfx.playAttackHit();
       const critText = part === 'head' ? 'CRITICAL HEADSHOT!' : 'HIT!';
@@ -1489,7 +1497,9 @@ function animate() {
     skyLeviathan.update(deltaTime, controls.playerPosition, null);
   }
 
-  // 3. Update Sky, Animated Fluids, Mobs & Particles
+  // 3. Update Sky, Sunlight, Clouds, Animated Fluids, Mobs & Particles
+  lights.updateSunFollow(controls.playerPosition);
+  skyEnclosure.update(deltaTime, controls.playerPosition);
   world.updateFluids(deltaTime);
   sharedShaderUniforms.uTime.value += deltaTime;
   camera.getWorldDirection(lookDirection);

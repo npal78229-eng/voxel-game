@@ -75,180 +75,238 @@ export class StukaFlightSystem {
 
   initMaterials() {
     this.mats = {
-      fuselage: createBasePBRShader({
-        baseColor: 0x2e3b2e, // Luftwaffe Dark Camo Olive Green
-        roughness: 0.65,
-        metallic: 0.25,
-        rimColor: 0x64748b,
-        rimPower: 3.5,
-        rimStrength: 0.5,
+      fuselage: new THREE.MeshStandardMaterial({
+        color: 0x3d4e3d, // Authentic Luftwaffe Dark Camo Olive Green
+        roughness: 0.52,
+        metalness: 0.22,
       }),
-      underside: createBasePBRShader({
-        baseColor: 0x768896, // Hellblau underside
-        roughness: 0.60,
-        metallic: 0.20,
-        rimColor: 0x94a3b8,
-        rimPower: 3.0,
-        rimStrength: 0.4,
+      underside: new THREE.MeshStandardMaterial({
+        color: 0x8298a8, // Authentic Hellblau Light Blue-Grey
+        roughness: 0.48,
+        metalness: 0.18,
       }),
-      yellowAccent: createBasePBRShader({
-        baseColor: 0xd4a017, // Eastern front yellow cowling/wingtips
-        roughness: 0.50,
-        metallic: 0.15,
+      yellowAccent: new THREE.MeshStandardMaterial({
+        color: 0xf59e0b, // Eastern Front Yellow Cowling & Wingtips
+        roughness: 0.40,
+        metalness: 0.12,
       }),
-      canopy: createCanopyRefractionShader({
-        glassColor: 0x7da4c7,
-        baseAlpha: 0.38,
-        fresnelPower: 2.6,
+      canopy: new THREE.MeshStandardMaterial({
+        color: 0xa8cce8,
+        transparent: true,
+        opacity: 0.48,
+        roughness: 0.12,
+        metalness: 0.15,
+        depthWrite: false,
       }),
       canopyFrame: new THREE.MeshStandardMaterial({
-        color: 0x1f241f,
-        roughness: 0.8,
+        color: 0x1c221c,
+        roughness: 0.75,
       }),
-      engineMetal: createBasePBRShader({
-        baseColor: 0x222222,
-        roughness: 0.4,
-        metallic: 0.8,
+      engineMetal: new THREE.MeshStandardMaterial({
+        color: 0x22262a,
+        roughness: 0.35,
+        metalness: 0.85,
       }),
       propeller: new THREE.MeshStandardMaterial({
-        color: 0x151815,
-        roughness: 0.5,
+        color: 0x181c18,
+        roughness: 0.55,
       }),
+      propellerBlur: new THREE.MeshBasicMaterial({
+        color: 0xd8ded8,
+        transparent: true,
+        opacity: 0.28,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+      crossWhite: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+      crossBlack: new THREE.MeshBasicMaterial({ color: 0x111111 }),
       tracer: createBioluminescentEmissionShader({
         emissionColor: 0xffea55,
         coreColor: 0xffffff,
-        emissionStrength: 4.2,
+        emissionStrength: 4.5,
       }),
       flareMat: createBioluminescentEmissionShader({
         emissionColor: 0xffffff,
         coreColor: 0xffedd5,
         emissionStrength: 5.5,
       }),
-      bombMat: createBasePBRShader({
-        baseColor: 0x3d4338,
-        roughness: 0.7,
-        metallic: 0.5,
+      bombMat: new THREE.MeshStandardMaterial({
+        color: 0x475143,
+        roughness: 0.65,
+        metalness: 0.45,
       }),
     };
   }
 
   /**
    * Constructs an authentic, proportional 3D model of the Junkers Ju 87 Stuka
-   * featuring inverted gull wings, wheel spats, dive siren, and spinning propeller.
+   * featuring inverted gull wings, forward wheel spats, dive siren, Balkenkreuz crosses, and spinning propeller.
    */
   buildStukaJu87Model() {
     const root = new THREE.Group();
 
-    // 1. Main Fuselage
-    const fuseGeo = new THREE.CylinderGeometry(0.55, 0.28, 6.2, 12);
+    // 1. Main Fuselage (6.2m length, streamlined oval)
+    const fuseGeo = new THREE.CylinderGeometry(0.56, 0.28, 6.2, 14);
     fuseGeo.rotateX(Math.PI * 0.5);
     const fuselage = new THREE.Mesh(fuseGeo, this.mats.fuselage);
     fuselage.castShadow = true;
+    fuselage.receiveShadow = true;
     root.add(fuselage);
 
-    // Engine Cowling Nose
-    const cowlGeo = new THREE.ConeGeometry(0.58, 1.4, 12);
-    cowlGeo.rotateX(-Math.PI * 0.5);
+    // Engine Cowling Nose (Points FORWARD to +Z!)
+    const cowlGeo = new THREE.ConeGeometry(0.56, 1.2, 14);
+    cowlGeo.rotateX(Math.PI * 0.5); // Apex points forward (+Z)!
     const cowl = new THREE.Mesh(cowlGeo, this.mats.yellowAccent);
-    cowl.position.set(0, 0, 3.6);
+    cowl.position.set(0, 0, 3.7);
+    cowl.castShadow = true;
     root.add(cowl);
 
     // 2. Greenhouse Cockpit Canopy
-    const canopyGeo = new THREE.BoxGeometry(0.68, 0.62, 2.2);
+    const canopyGeo = new THREE.BoxGeometry(0.72, 0.64, 2.3);
     const canopy = new THREE.Mesh(canopyGeo, this.mats.canopy);
-    canopy.position.set(0, 0.48, 0.6);
+    canopy.position.set(0, 0.52, 0.6);
     root.add(canopy);
 
-    // Canopy frames
-    for (let zOff = -0.7; zOff <= 0.7; zOff += 0.45) {
-      const frame = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.66, 0.08), this.mats.canopyFrame);
-      frame.position.set(0, 0.48, 0.6 + zOff);
+    // Dark Canopy Frames
+    for (let zOff = -0.8; zOff <= 0.8; zOff += 0.4) {
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.68, 0.06), this.mats.canopyFrame);
+      frame.position.set(0, 0.52, 0.6 + zOff);
       root.add(frame);
     }
+    // Radio antenna mast
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.8, 6), this.mats.canopyFrame);
+    mast.position.set(0, 0.95, -0.4);
+    mast.rotation.x = -0.2;
+    root.add(mast);
 
     // 3. Inverted Gull Wings (The Signature Stuka Cranked Wings)
-    // Left Wing: Inner section angles down, outer section angles up
+    // Left Wing: Inner section cranked down, outer section cranked up
     const wingInnerL = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.14, 1.6), this.mats.fuselage);
-    wingInnerL.position.set(-1.2, -0.22, 0.8);
-    wingInnerL.rotation.z = 0.26; // Anhedral down
+    wingInnerL.position.set(-1.2, -0.24, 0.8);
+    wingInnerL.rotation.z = 0.28; // Anhedral down
+    wingInnerL.castShadow = true;
     root.add(wingInnerL);
 
     const wingOuterL = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.12, 1.3), this.mats.fuselage);
-    wingOuterL.position.set(-3.9, 0.15, 0.7);
-    wingOuterL.rotation.z = -0.12; // Dihedral up
+    wingOuterL.position.set(-3.8, 0.16, 0.7);
+    wingOuterL.rotation.z = -0.14; // Dihedral up
+    wingOuterL.castShadow = true;
     const wingTipL = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.12, 1.2), this.mats.yellowAccent);
-    wingTipL.position.set(-5.6, 0.35, 0.65);
-    wingTipL.rotation.z = -0.12;
+    wingTipL.position.set(-5.6, 0.38, 0.65);
+    wingTipL.rotation.z = -0.14;
+    wingTipL.castShadow = true;
     root.add(wingOuterL, wingTipL);
 
     // Right Wing: Mirror of left wing
     const wingInnerR = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.14, 1.6), this.mats.fuselage);
-    wingInnerR.position.set(1.2, -0.22, 0.8);
-    wingInnerR.rotation.z = -0.26;
+    wingInnerR.position.set(1.2, -0.24, 0.8);
+    wingInnerR.rotation.z = -0.28;
+    wingInnerR.castShadow = true;
     root.add(wingInnerR);
 
     const wingOuterR = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.12, 1.3), this.mats.fuselage);
-    wingOuterR.position.set(3.9, 0.15, 0.7);
-    wingOuterR.rotation.z = 0.12;
+    wingOuterR.position.set(3.8, 0.16, 0.7);
+    wingOuterR.rotation.z = 0.14;
+    wingOuterR.castShadow = true;
     const wingTipR = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.12, 1.2), this.mats.yellowAccent);
-    wingTipR.position.set(5.6, 0.35, 0.65);
-    wingTipR.rotation.z = 0.12;
+    wingTipR.position.set(5.6, 0.38, 0.65);
+    wingTipR.rotation.z = 0.14;
+    wingTipR.castShadow = true;
     root.add(wingOuterR, wingTipR);
+
+    // Balkenkreuz Crosses on Left & Right wings
+    [-3.6, 3.6].forEach(cx => {
+      const crossW = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 0.85), this.mats.crossWhite);
+      crossW.rotation.x = -Math.PI * 0.5;
+      crossW.position.set(cx, 0.24, 0.7);
+      const crossB = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.65), this.mats.crossBlack);
+      crossB.rotation.x = -Math.PI * 0.5;
+      crossB.position.set(cx, 0.245, 0.7);
+      root.add(crossW, crossB);
+    });
+
+    // Dive brake slats under the wings
+    [-3.5, 3.5].forEach(dx => {
+      const brake = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.08, 0.22), this.mats.engineMetal);
+      brake.position.set(dx, -0.05, 0.2);
+      root.add(brake);
+    });
 
     // 4. Twin 7.92mm MG-17 Machine Gun Barrels
     this.gunBarrels = [];
     [-2.1, 2.1].forEach(gx => {
-      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 1.1, 8), this.mats.engineMetal);
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 1.2, 8), this.mats.engineMetal);
       barrel.rotateX(Math.PI * 0.5);
-      barrel.position.set(gx, -0.26, 1.8);
+      barrel.position.set(gx, -0.24, 1.9);
       root.add(barrel);
       this.gunBarrels.push(barrel);
     });
 
     // 5. Fixed Landing Gear with Aerodynamic Wheel Spats
-    [-1.9, 1.9].forEach(lx => {
-      const strut = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.2, 0.4), this.mats.fuselage);
-      strut.position.set(lx, -1.0, 0.9);
-      const spat = new THREE.Mesh(new THREE.ConeGeometry(0.35, 1.1, 8), this.mats.fuselage);
-      spat.rotateX(-Math.PI * 0.4);
-      spat.position.set(lx, -1.5, 0.8);
-      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.18, 12), this.mats.engineMetal);
-      wheel.rotateZ(Math.PI * 0.5);
-      wheel.position.set(lx, -1.65, 0.7);
+    [-1.6, 1.6].forEach(lx => {
+      const strut = new THREE.Mesh(new THREE.BoxGeometry(0.24, 1.3, 0.4), this.mats.fuselage);
+      strut.position.set(lx, -0.9, 0.9);
+      strut.castShadow = true;
 
-      // Jericho Trumpet Siren pod on left wheel strut
+      // Aerodynamic wheel spat pointing forward and down
+      const spat = new THREE.Mesh(new THREE.ConeGeometry(0.38, 1.3, 10), this.mats.fuselage);
+      spat.rotateX(Math.PI * 0.45); // Pointing forward-down!
+      spat.position.set(lx, -1.45, 0.9);
+      spat.castShadow = true;
+
+      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.2, 14), this.mats.engineMetal);
+      wheel.rotateZ(Math.PI * 0.5);
+      wheel.position.set(lx, -1.6, 0.85);
+
+      // Jericho Trumpet Siren pod on left wheel strut (horn pointing forward)
       if (lx < 0) {
-        const siren = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.5, 6), this.mats.engineMetal);
-        siren.rotateX(-Math.PI * 0.5);
-        siren.position.set(lx - 0.22, -1.1, 1.1);
+        const siren = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.55, 8), this.mats.engineMetal);
+        siren.rotateX(Math.PI * 0.5); // Horn mouth pointing forward!
+        siren.position.set(lx - 0.25, -1.1, 1.25);
         root.add(siren);
       }
 
       root.add(strut, spat, wheel);
     });
 
-    // 6. Tailplane (Vertical Fin and Horizontal Stabilizers)
-    const vertFin = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.4, 1.1), this.mats.fuselage);
-    vertFin.position.set(0, 0.7, -2.8);
-    vertFin.rotation.x = -0.3;
-    const horizStab = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.1, 0.9), this.mats.fuselage);
-    horizStab.position.set(0, 0.2, -2.9);
-    root.add(vertFin, horizStab);
+    // 6. Tailplane (Vertical Fin, Rudder, and Horizontal Stabilizers)
+    const vertFin = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.5, 1.2), this.mats.fuselage);
+    vertFin.position.set(0, 0.75, -2.9);
+    vertFin.rotation.x = -0.28;
+    vertFin.castShadow = true;
+    const rudder = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.3, 0.6), this.mats.yellowAccent);
+    rudder.position.set(0, 0.65, -3.4);
+    rudder.castShadow = true;
+    const horizStab = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.12, 0.95), this.mats.fuselage);
+    horizStab.position.set(0, 0.22, -3.0);
+    horizStab.castShadow = true;
+    root.add(vertFin, rudder, horizStab);
 
-    // 7. 3-Blade Propeller
+    // 7. 3-Blade Propeller & Pointed Spinner Cone
     this.propellerGroup = new THREE.Group();
     this.propellerGroup.position.set(0, 0, 4.3);
-    const spinner = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 8), this.mats.yellowAccent);
+
+    // Pointed spinner cone pointing forward (+Z)
+    const spinnerGeo = new THREE.ConeGeometry(0.26, 0.55, 12);
+    spinnerGeo.rotateX(Math.PI * 0.5);
+    const spinner = new THREE.Mesh(spinnerGeo, this.mats.yellowAccent);
+    spinner.position.set(0, 0, 0.26);
     this.propellerGroup.add(spinner);
 
     for (let i = 0; i < 3; i++) {
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.25, 0.04), this.mats.propeller);
-      blade.position.y = 0.6;
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.28, 0.04), this.mats.propeller);
+      blade.position.y = 0.68;
       const bladePivot = new THREE.Group();
       bladePivot.rotation.z = (i * Math.PI * 2) / 3;
       bladePivot.add(blade);
       this.propellerGroup.add(bladePivot);
     }
+
+    // High-RPM Spinning Propeller Blur Disc
+    const blurDisc = new THREE.Mesh(new THREE.CircleGeometry(1.32, 24), this.mats.propellerBlur);
+    blurDisc.position.set(0, 0, 0.05);
+    this.propellerGroup.add(blurDisc);
+
     root.add(this.propellerGroup);
 
     // Centerline 250kg Bomb (visible when loaded)
@@ -609,8 +667,14 @@ export class StukaFlightSystem {
 
     // Expand chunk streaming radius for smooth flight over vast terrain
     if (this.world && typeof this.world.setRenderRadius === 'function') {
-      this.world.setRenderRadius(5);
+      this.world.setRenderRadius(6);
     }
+
+    // Snap camera immediately to reel chase position (no ground lerping lag!)
+    const camOffset = new THREE.Vector3(0, 1.7, -6.8).applyEuler(this.rotation);
+    this.camera.position.copy(this.position).add(camOffset);
+    const forward = this.getForwardVector();
+    this.camera.lookAt(this.position.clone().add(forward.clone().multiplyScalar(24.0)).add(new THREE.Vector3(0, 1.0, 0)));
 
     if (this.hudContainer) {
       this.hudContainer.style.display = 'block';
@@ -817,11 +881,11 @@ export class StukaFlightSystem {
       this.propellerGroup.rotation.z = this.propellerAngle;
     }
 
-    // 2. Camera Chase Logic with Smooth Aerodynamic Banking Follow
-    const camOffset = new THREE.Vector3(0, 2.4, -9.6).applyEuler(this.rotation);
+    // 2. Camera Chase Logic with Authentic Reel Framing (Centered Behind & Slightly Elevated)
+    const camOffset = new THREE.Vector3(0, 1.7, -6.8).applyEuler(this.rotation);
     const desiredCamPos = this.position.clone().add(camOffset);
-    this.camera.position.lerp(desiredCamPos, Math.min(1.0, deltaTime * 14.0));
-    const lookTarget = this.position.clone().add(forward.clone().multiplyScalar(22));
+    this.camera.position.lerp(desiredCamPos, Math.min(1.0, deltaTime * 16.0));
+    const lookTarget = this.position.clone().add(forward.clone().multiplyScalar(24.0)).add(new THREE.Vector3(0, 1.0, 0));
     this.camera.lookAt(lookTarget);
 
     // 3. Audio Frequency & Dive Siren Modulation

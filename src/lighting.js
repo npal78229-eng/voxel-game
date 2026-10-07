@@ -5,26 +5,25 @@ import * as THREE from 'three';
 // ============================================================================
 
 export function setupLighting(scene) {
-  // 1. Ambient Light: Soft base illumination so caves & shaded cliffs remain readable
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.44);
+  // 1. Ambient Light: Soft, luminous overcast sky fill so terrain and shadows stay clear
+  const ambientLight = new THREE.AmbientLight(0xdde8f2, 0.82);
   scene.add(ambientLight);
 
   // 2. Sky/Ground Hemisphere Light
-  const hemiLight = new THREE.HemisphereLight(0xdbeafe, 0x4d3319, 0.28);
-  hemiLight.position.set(0, 40, 0);
+  const hemiLight = new THREE.HemisphereLight(0xe4edf5, 0x485842, 0.55);
+  hemiLight.position.set(0, 60, 0);
   scene.add(hemiLight);
 
-  // 3. Directional Sunlight angled asymmetrically so top (+Y) faces are brightest,
-  //    +X/+Z faces are mid-tone, and -X/-Z faces are shaded
-  const sunLight = new THREE.DirectionalLight(0xfff5e0, 1.45);
-  sunLight.position.set(24, 42, 18);
+  // 3. Directional Sunlight illuminating landscape and aircraft with soft shadows
+  const sunLight = new THREE.DirectionalLight(0xfff8ee, 1.55);
+  sunLight.position.set(35, 80, 25);
   sunLight.castShadow = true;
 
   sunLight.shadow.mapSize.width = 1024;
   sunLight.shadow.mapSize.height = 1024;
   sunLight.shadow.camera.near = 1;
-  sunLight.shadow.camera.far = 110;
-  const d = 40;
+  sunLight.shadow.camera.far = 160;
+  const d = 55;
   sunLight.shadow.camera.left = -d;
   sunLight.shadow.camera.right = d;
   sunLight.shadow.camera.top = d;
@@ -34,12 +33,13 @@ export function setupLighting(scene) {
   scene.add(sunLight.target);
 
   function updateSunFollow(playerPosition) {
+    const py = playerPosition.y ?? 20;
     sunLight.position.set(
-      playerPosition.x + 24,
-      42,
-      playerPosition.z + 18
+      playerPosition.x + 35,
+      py + 65,
+      playerPosition.z + 25
     );
-    sunLight.target.position.set(playerPosition.x, 0, playerPosition.z);
+    sunLight.target.position.set(playerPosition.x, py, playerPosition.z);
     sunLight.target.updateMatrixWorld();
   }
 

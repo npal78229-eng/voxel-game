@@ -838,23 +838,22 @@ export class SkyLeviathan {
   }
 
   /**
-   * Sets up the cinematic overcast dieselpunk fog and lighting to match the reel!
+   * Sets up the cinematic luminous overcast sky and vast open visibility matching the reel!
    */
   applyReelAtmosphere(scene, renderer) {
-    // Dense misty gloomy overcast sky matching reel's dieselpunk dogfight
-    // Density 0.0038 expands clean visibility to 240m+ so vast terrain and sky are fully rendered
-    const overcastColor = new THREE.Color(0x1c2430);
+    // Open, luminous silver-grey overcast sky matching the viral reel (@cloudgamesid)
+    const overcastColor = new THREE.Color(0xd2dce4);
     scene.background = overcastColor;
     if (scene.fog) {
       scene.fog.color.copy(overcastColor);
-      scene.fog.density = 0.0038;
+      scene.fog.density = 0.0016; // Vast open visibility extending to 450m+
     } else {
-      scene.fog = new THREE.FogExp2(0x1c2430, 0.0038);
+      scene.fog = new THREE.FogExp2(0xd2dce4, 0.0016);
     }
 
     if (this.skyEnclosure) {
       this.skyEnclosure.group.visible = true;
     }
-    console.log('[SkyLeviathan] Applied atmospheric overcast fog (0.0038) & majestic cloud horizon enclosure.');
+    console.log('[SkyLeviathan] Applied luminous silver overcast sky (0xd2dce4) & open fog (0.0016).');
   }
 }
