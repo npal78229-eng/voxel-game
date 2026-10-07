@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node tests/fluids.test.js && node tests/animals.test.js && node tests/time.test.js && node tests/lightning.test.js && node tests/village_and_mobs.test.js && node tests/flight_and_leviathan.test.js",
+    "test": "node tests/fluids.test.js && node tests/animals.test.js && node tests/time.test.js && node tests/lightning.test.js && node tests/village_and_mobs.test.js && node tests/flight_and_leviathan.test.js && node tests/shaders.test.js",
     "app:dev": "electron .",
     "app:build": "vite build",
     "app:pack": "vite build && electron-builder --dir",

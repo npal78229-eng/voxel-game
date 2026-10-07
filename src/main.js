@@ -26,6 +26,7 @@ import { DragonArenaSystem } from './DragonArenaSystem.js';
 import { VillageSystem } from './world/VillageSystem.js';
 import { StukaFlightSystem } from './StukaFlightSystem.js';
 import { SkyLeviathan } from './SkyLeviathan.js';
+import { ReelPostProcessingStack } from './shaders/ReelShaderSystem.js';
 
 // ============================================================================
 // Voxel Realms v2.0 — Complete Upgrade Suite (Phases U0–U7)
@@ -116,8 +117,10 @@ const dragonArena = new DragonArenaSystem(scene, camera, renderer);
 const villageSystem = new VillageSystem(world, scene, mobs);
 const stukaFlight = new StukaFlightSystem(scene, camera, renderer, world);
 const skyLeviathan = new SkyLeviathan(scene, camera, renderer);
+const reelPostStack = new ReelPostProcessingStack(renderer, scene, camera);
 window.stukaFlight = stukaFlight;
 window.skyLeviathan = skyLeviathan;
+window.reelPostStack = reelPostStack;
 
 // Generate complete Village v3 with Clan Flags and Ancient Caldera Portal next to player spawn
 // (Registered into chunk diff index in ~10ms before chunk meshing so all chunks mesh once without freeze)
@@ -1062,6 +1065,10 @@ document.getElementById('menu-btn-quality')?.addEventListener('click', (e) => {
   renderer.setPixelRatio(
     qualityIndex === 0 ? 1 : Math.min(window.devicePixelRatio, 2)
   );
+  if (reelPostStack) {
+    const qPreset = qualityIndex === 0 ? 'low' : (qualityIndex === 1 ? 'medium' : 'high');
+    reelPostStack.setQuality(qPreset);
+  }
   showToast(`Quality Preset: ${q}`);
 });
 document.getElementById('menu-btn-new')?.addEventListener('click', () => {
@@ -1132,6 +1139,10 @@ document.getElementById('launcher-opt-quality')?.addEventListener('change', (e) 
 
   renderer.shadowMap.enabled = qualityIndex >= 1;
   renderer.setPixelRatio(qualityIndex === 0 ? 1 : Math.min(window.devicePixelRatio, qualityIndex >= 2 ? 1.5 : 1));
+  if (reelPostStack) {
+    const qPreset = qualityIndex === 0 ? 'low' : (qualityIndex === 1 ? 'medium' : 'high');
+    reelPostStack.setQuality(qPreset);
+  }
   const qBtn = document.getElementById('menu-btn-quality');
   if (qBtn) qBtn.textContent = `Graphics Quality: ${qualityNames[qualityIndex]}`;
 });
@@ -1370,6 +1381,9 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  if (reelPostStack) {
+    reelPostStack.onWindowResize();
+  }
 });
 
 // 17. MAIN 60 FPS RENDER LOOP & TELEMETRY
@@ -1450,19 +1464,23 @@ function animate() {
       showToast('Returned to Overworld from Calamity Caldera!');
     }
     dragonArena.update(deltaTime, controls.playerPosition);
-    renderer.render(scene, camera);
+    reelPostStack.render(deltaTime);
     return;
   }
 
   // Stuka Flight & Sky Leviathan Combat System (100% Dedicated 60 FPS Flight Dynamics)
   if (stukaFlight && stukaFlight.isActive) {
+    // Keep player coordinates synchronized with aircraft position to drive chunk streaming
+    controls.playerPosition.copy(stukaFlight.position);
+    world.updateChunks(stukaFlight.position, false, stukaFlight.getForwardVector());
+
     stukaFlight.update(deltaTime, skyLeviathan, (dmg, part) => {
       sfx.playAttackHit();
       const critText = part === 'head' ? 'CRITICAL HEADSHOT!' : 'HIT!';
       showToast(`💥 ${critText} -${Math.round(dmg)} HP on Leviathan!`, 750);
     });
     skyLeviathan.update(deltaTime, stukaFlight.position, stukaFlight);
-    renderer.render(scene, camera);
+    reelPostStack.render(deltaTime);
     return;
   }
 
@@ -1512,8 +1530,8 @@ function animate() {
   currentHit = raycastVoxelDDA(world, controls.playerPosition, lookDirection);
   highlighter.update(currentHit);
 
-  // 6. Render Scene
-  renderer.render(scene, camera);
+  // 6. Render Scene via Reel Post-Processing Stack (HDR Bloom, Color Grading, Vignette, Film Grain)
+  reelPostStack.render(deltaTime);
 
   // 7. Update Telemetry
   frameCount++;

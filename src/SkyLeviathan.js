@@ -1,4 +1,11 @@
 import * as THREE from 'three';
+import {
+  createBasePBRShader,
+  createBioluminescentEmissionShader,
+  createFresnelRimShader,
+  createEnergyDistortionShader,
+  AtmosphericSkyEnclosure,
+} from './shaders/ReelShaderSystem.js';
 
 /**
  * SkyLeviathan.js — Colossal Abyssal Void Wyrm Boss System
@@ -35,11 +42,11 @@ export class SkyLeviathan {
     this.hp = 1500;
     this.isDead = false;
 
-    // Movement & Kinematics
+    // Movement & Kinematics (Balanced to match Stuka flight speed 17.5 m/s)
     this.headPosition = new THREE.Vector3(0, 85, -120);
     this.headRotation = new THREE.Euler(0, 0, 0, 'YXZ');
     this.headVelocity = new THREE.Vector3(0, 0, 1);
-    this.speed = 36; // Base flight speed in m/s
+    this.speed = 15.0; // Balanced dogfight flight speed
 
     this.flightAngle = 0;
     this.flightTime = 0;
@@ -64,6 +71,10 @@ export class SkyLeviathan {
     // Audio
     this.audioCtx = null;
 
+    // Atmospheric Horizon Enclosure (Clouds & Mountains)
+    this.skyEnclosure = new AtmosphericSkyEnclosure(this.scene);
+    this.skyEnclosure.group.visible = false;
+
     // Initialize Assets
     this.initMaterials();
     this.buildLeviathanBody();
@@ -72,47 +83,71 @@ export class SkyLeviathan {
 
   initMaterials() {
     this.mats = {
-      // Obsidian Scales - Abyssal charcoal black
-      scalesDark: new THREE.MeshStandardMaterial({
-        color: 0x0c1017,
+      // Obsidian Scales - Abyssal charcoal black with cyan Fresnel rim light
+      scalesDark: createBasePBRShader({
+        baseColor: 0x0a0e15,
         roughness: 0.65,
-        metalness: 0.35,
+        metallic: 0.35,
+        rimColor: 0x38bdf8,
+        rimPower: 3.2,
+        rimStrength: 0.85,
       }),
       // Mid-tone Charcoal Spine Plates
-      scalesMid: new THREE.MeshStandardMaterial({
-        color: 0x161c26,
+      scalesMid: createBasePBRShader({
+        baseColor: 0x141a24,
         roughness: 0.55,
-        metalness: 0.25,
+        metallic: 0.25,
+        rimColor: 0x38bdf8,
+        rimPower: 3.5,
+        rimStrength: 0.75,
       }),
-      // Dorsal Ridge Spikes
-      dorsalSpike: new THREE.MeshStandardMaterial({
-        color: 0x07090d,
-        roughness: 0.4,
-        metalness: 0.5,
+      // Dorsal Ridge Spikes with sharp rim highlights
+      dorsalSpike: createFresnelRimShader({
+        baseColor: 0x07090d,
+        rimColor: 0x5eeaff,
+        rimPower: 2.8,
+        rimStrength: 1.6,
       }),
       // The Iconic Cyan Bioluminescent Glowing Nodes (Dual Rows)
-      cyanOrbGlow: new THREE.MeshBasicMaterial({
-        color: 0x5eeaff,
+      cyanOrbGlow: createBioluminescentEmissionShader({
+        emissionColor: 0x5eeaff,
+        coreColor: 0xffffff,
+        emissionStrength: 3.4,
+        fresnelPower: 2.0,
+        fresnelStrength: 2.2,
+        pulseSpeed: 3.2,
+        pulseIntensity: 0.45,
       }),
       cyanOrbCore: new THREE.MeshBasicMaterial({
         color: 0xffffff,
       }),
       // Eyes & Horn Accents
-      cyanEye: new THREE.MeshBasicMaterial({
-        color: 0x76f5ff,
+      cyanEye: createBioluminescentEmissionShader({
+        emissionColor: 0x76f5ff,
+        coreColor: 0xffffff,
+        emissionStrength: 2.8,
       }),
-      // Plasma Core in Maw
-      plasmaCore: new THREE.MeshBasicMaterial({
-        color: 0x38bdf8,
+      // Procedural Plasma Core in Maw with animated Simplex noise
+      plasmaCore: createEnergyDistortionShader({
+        colorA: 0x0284c7,
+        colorB: 0x38bdf8,
+        coreColor: 0xffffff,
+        distortionStrength: 0.7,
+        noiseScale: 2.2,
+        noiseSpeed: 2.0,
       }),
       // Teeth & Claws
-      boneIvory: new THREE.MeshStandardMaterial({
-        color: 0xd9e2ec,
+      boneIvory: createBasePBRShader({
+        baseColor: 0xd9e2ec,
         roughness: 0.3,
+        metallic: 0.1,
+        rimColor: 0x94a3b8,
+        rimPower: 4.0,
+        rimStrength: 0.5,
       }),
       // Hit flash material
       hitFlashMat: new THREE.MeshBasicMaterial({
-        color: 0x99f6e4,
+        color: 0xa5f3fc,
       }),
     };
   }
@@ -589,6 +624,19 @@ export class SkyLeviathan {
     this.stateTimer += deltaTime;
     this.undulationTimer += deltaTime * 2.2;
 
+    // Update real-time shader uniform times for energy pulsing
+    if (this.mats.cyanOrbGlow && this.mats.cyanOrbGlow.uniforms) {
+      this.mats.cyanOrbGlow.uniforms.uTime.value += deltaTime;
+    }
+    if (this.mats.plasmaCore && this.mats.plasmaCore.uniforms) {
+      this.mats.plasmaCore.uniforms.uTime.value += deltaTime;
+    }
+
+    // Update Atmospheric Cloud Deck & Distant Mountains
+    if (this.skyEnclosure && this.skyEnclosure.group.visible) {
+      this.skyEnclosure.update(deltaTime, this.headPosition);
+    }
+
     const pPos = playerPosition || new THREE.Vector3(0, 45, 0);
 
     // ========================================================================
@@ -794,14 +842,19 @@ export class SkyLeviathan {
    */
   applyReelAtmosphere(scene, renderer) {
     // Dense misty gloomy overcast sky matching reel's dieselpunk dogfight
-    const overcastColor = new THREE.Color(0x1a212b);
+    // Density 0.0038 expands clean visibility to 240m+ so vast terrain and sky are fully rendered
+    const overcastColor = new THREE.Color(0x1c2430);
     scene.background = overcastColor;
     if (scene.fog) {
       scene.fog.color.copy(overcastColor);
-      scene.fog.density = 0.0075;
+      scene.fog.density = 0.0038;
     } else {
-      scene.fog = new THREE.FogExp2(0x1a212b, 0.0075);
+      scene.fog = new THREE.FogExp2(0x1c2430, 0.0038);
     }
-    console.log('[SkyLeviathan] Applied atmospheric overcast fog & moody dieselpunk lighting.');
+
+    if (this.skyEnclosure) {
+      this.skyEnclosure.group.visible = true;
+    }
+    console.log('[SkyLeviathan] Applied atmospheric overcast fog (0.0038) & majestic cloud horizon enclosure.');
   }
 }

@@ -1,4 +1,9 @@
 import * as THREE from 'three';
+import {
+  createBasePBRShader,
+  createBioluminescentEmissionShader,
+  createCanopyRefractionShader,
+} from './shaders/ReelShaderSystem.js';
 
 // ============================================================================
 // StukaFlightSystem.js — Authentic WWII Stuka Ju 87 Flight Combat System
@@ -21,7 +26,7 @@ export class StukaFlightSystem {
     this.scene.add(this.planeGroup);
 
     // Flight Dynamics
-    this.position = new THREE.Vector3(0, 45, 0);
+    this.position = new THREE.Vector3(0, 55, 0);
     this.velocity = new THREE.Vector3();
     this.rotation = new THREE.Euler(0, 0, 0, 'YXZ');
     this.quaternion = new THREE.Quaternion();
@@ -70,50 +75,59 @@ export class StukaFlightSystem {
 
   initMaterials() {
     this.mats = {
-      fuselage: new THREE.MeshStandardMaterial({
-        color: 0x2e3b2e, // Luftwaffe Dark Camo Olive Green
+      fuselage: createBasePBRShader({
+        baseColor: 0x2e3b2e, // Luftwaffe Dark Camo Olive Green
         roughness: 0.65,
-        metalness: 0.25,
+        metallic: 0.25,
+        rimColor: 0x64748b,
+        rimPower: 3.5,
+        rimStrength: 0.5,
       }),
-      underside: new THREE.MeshStandardMaterial({
-        color: 0x768896, // Hellblau underside
-        roughness: 0.6,
-        metalness: 0.2,
+      underside: createBasePBRShader({
+        baseColor: 0x768896, // Hellblau underside
+        roughness: 0.60,
+        metallic: 0.20,
+        rimColor: 0x94a3b8,
+        rimPower: 3.0,
+        rimStrength: 0.4,
       }),
-      yellowAccent: new THREE.MeshStandardMaterial({
-        color: 0xd4a017, // Eastern front yellow cowling/wingtips
-        roughness: 0.5,
+      yellowAccent: createBasePBRShader({
+        baseColor: 0xd4a017, // Eastern front yellow cowling/wingtips
+        roughness: 0.50,
+        metallic: 0.15,
       }),
-      canopy: new THREE.MeshStandardMaterial({
-        color: 0x9bc8eb,
-        transparent: true,
-        opacity: 0.6,
-        roughness: 0.1,
-        metalness: 0.8,
+      canopy: createCanopyRefractionShader({
+        glassColor: 0x7da4c7,
+        baseAlpha: 0.38,
+        fresnelPower: 2.6,
       }),
       canopyFrame: new THREE.MeshStandardMaterial({
         color: 0x1f241f,
         roughness: 0.8,
       }),
-      engineMetal: new THREE.MeshStandardMaterial({
-        color: 0x222222,
+      engineMetal: createBasePBRShader({
+        baseColor: 0x222222,
         roughness: 0.4,
-        metalness: 0.8,
+        metallic: 0.8,
       }),
       propeller: new THREE.MeshStandardMaterial({
         color: 0x151815,
         roughness: 0.5,
       }),
-      tracer: new THREE.MeshBasicMaterial({
-        color: 0xffea55,
+      tracer: createBioluminescentEmissionShader({
+        emissionColor: 0xffea55,
+        coreColor: 0xffffff,
+        emissionStrength: 4.2,
       }),
-      flareMat: new THREE.MeshBasicMaterial({
-        color: 0xffffff,
+      flareMat: createBioluminescentEmissionShader({
+        emissionColor: 0xffffff,
+        coreColor: 0xffedd5,
+        emissionStrength: 5.5,
       }),
-      bombMat: new THREE.MeshStandardMaterial({
-        color: 0x3d4338,
+      bombMat: createBasePBRShader({
+        baseColor: 0x3d4338,
         roughness: 0.7,
-        metalness: 0.5,
+        metallic: 0.5,
       }),
     };
   }
@@ -499,8 +513,8 @@ export class StukaFlightSystem {
 
     window.addEventListener('mousemove', (e) => {
       if (!this.isActive || !document.pointerLockElement) return;
-      this.mouseOffset.x += e.movementX * 0.0018;
-      this.mouseOffset.y += e.movementY * 0.0018;
+      this.mouseOffset.x = Math.max(-0.6, Math.min(0.6, this.mouseOffset.x + e.movementX * 0.0009));
+      this.mouseOffset.y = Math.max(-0.6, Math.min(0.6, this.mouseOffset.y + e.movementY * 0.0009));
     });
   }
 
@@ -578,15 +592,25 @@ export class StukaFlightSystem {
     } catch {}
   }
 
+  getForwardVector() {
+    return new THREE.Vector3(0, 0, 1).applyEuler(this.rotation);
+  }
+
   enterFlightMode(playerPosition, playerCamera) {
     if (this.isActive) return;
     this.isActive = true;
     this.initAudio();
 
-    this.position.copy(playerPosition).add(new THREE.Vector3(0, 18, 0));
+    const startY = Math.max(54, playerPosition.y + 24);
+    this.position.set(playerPosition.x, startY, playerPosition.z);
     this.rotation.set(0, playerCamera ? playerCamera.rotation.y : 0, 0);
     this.planeGroup.position.copy(this.position);
     this.planeGroup.visible = true;
+
+    // Expand chunk streaming radius for smooth flight over vast terrain
+    if (this.world && typeof this.world.setRenderRadius === 'function') {
+      this.world.setRenderRadius(5);
+    }
 
     if (this.hudContainer) {
       this.hudContainer.style.display = 'block';
@@ -599,6 +623,11 @@ export class StukaFlightSystem {
     if (!this.isActive) return;
     this.isActive = false;
     this.planeGroup.visible = false;
+
+    // Restore standard on-foot chunk radius
+    if (this.world && typeof this.world.setRenderRadius === 'function') {
+      this.world.setRenderRadius(4);
+    }
 
     if (this.hudContainer) {
       this.hudContainer.style.display = 'none';
@@ -715,25 +744,25 @@ export class StukaFlightSystem {
     let targetYaw = 0;
 
     // Pitch from W / S or mouse Y
-    if (this.keys['KeyW']) targetPitch -= 1.2;
-    if (this.keys['KeyS']) targetPitch += 1.2;
-    targetPitch += this.mouseOffset.y * 1.5;
+    if (this.keys['KeyW']) targetPitch -= 0.85;
+    if (this.keys['KeyS']) targetPitch += 0.85;
+    targetPitch += this.mouseOffset.y * 1.0;
 
     // Roll & Rudder from A / D or mouse X
     if (this.keys['KeyA']) {
-      targetRoll += 1.6;
-      targetYaw += 0.8;
+      targetRoll += 1.3;
+      targetYaw += 0.65;
     }
     if (this.keys['KeyD']) {
-      targetRoll -= 1.6;
-      targetYaw -= 0.8;
+      targetRoll -= 1.3;
+      targetYaw -= 0.65;
     }
-    targetRoll -= this.mouseOffset.x * 2.2;
-    targetYaw -= this.mouseOffset.x * 0.9;
+    targetRoll -= this.mouseOffset.x * 1.5;
+    targetYaw -= this.mouseOffset.x * 0.7;
 
     // Reset mouse delta accumulation
-    this.mouseOffset.x *= 0.15;
-    this.mouseOffset.y *= 0.15;
+    this.mouseOffset.x *= 0.12;
+    this.mouseOffset.y *= 0.12;
 
     // Boost & Airbrakes
     let targetKmh = 176;
@@ -765,14 +794,17 @@ export class StukaFlightSystem {
 
     // Compute forward motion vector
     this.planeGroup.rotation.copy(this.rotation);
-    const forward = new THREE.Vector3(0, 0, 1).applyEuler(this.rotation);
-    const speedMs = (this.speedKmh * 1000) / 3600;
+    const forward = this.getForwardVector();
+
+    // Cinematic translation speed: 17.5 m/s at 176 km/h cruise (matches reel, prevents outrunning chunks)
+    const speedRatio = this.speedKmh / 176.0;
+    const speedMs = 17.5 * speedRatio;
 
     this.velocity.copy(forward).multiplyScalar(speedMs);
     this.position.addScaledVector(this.velocity, deltaTime);
 
     // Prevent crashing deep underground
-    const minAltitude = 6;
+    const minAltitude = 12;
     if (this.position.y < minAltitude) {
       this.position.y = minAltitude;
       this.rotation.x = Math.max(0.1, this.rotation.x);
@@ -781,14 +813,15 @@ export class StukaFlightSystem {
 
     // Propeller spinning animation
     if (this.propellerGroup) {
-      this.propellerAngle += deltaTime * (this.speedKmh * 0.3);
+      this.propellerAngle += deltaTime * (this.speedKmh * 0.35);
       this.propellerGroup.rotation.z = this.propellerAngle;
     }
 
-    // 2. Camera Chase Logic
-    const camOffset = new THREE.Vector3(0, 2.8, -10.5).applyEuler(this.rotation);
-    this.camera.position.copy(this.position).add(camOffset);
-    const lookTarget = this.position.clone().add(forward.clone().multiplyScalar(15));
+    // 2. Camera Chase Logic with Smooth Aerodynamic Banking Follow
+    const camOffset = new THREE.Vector3(0, 2.4, -9.6).applyEuler(this.rotation);
+    const desiredCamPos = this.position.clone().add(camOffset);
+    this.camera.position.lerp(desiredCamPos, Math.min(1.0, deltaTime * 14.0));
+    const lookTarget = this.position.clone().add(forward.clone().multiplyScalar(22));
     this.camera.lookAt(lookTarget);
 
     // 3. Audio Frequency & Dive Siren Modulation

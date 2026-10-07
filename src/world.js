@@ -10,9 +10,15 @@ import { createMinecraftWaterMaterial, WaterAnimator, WATER_RENDER_RULES } from 
 // Phases U0.2, U2.1 & U3 — VoxelWorld with Web Worker Pool & Pixel Atlas
 // ============================================================================
 
-export const RENDER_RADIUS = 3;
-export const UNLOAD_RADIUS = 4;
-export const MAX_CHUNKS_PER_FRAME = 2;
+export let RENDER_RADIUS = 4;
+export let UNLOAD_RADIUS = 6;
+export let MAX_CHUNKS_PER_FRAME = 4;
+
+export function setRenderRadius(r) {
+  RENDER_RADIUS = Math.max(3, Math.min(8, r));
+  UNLOAD_RADIUS = RENDER_RADIUS + 2;
+  MAX_CHUNKS_PER_FRAME = Math.min(6, RENDER_RADIUS);
+}
 
 export const sharedShaderUniforms = {
   uTime: { value: 0 },
@@ -357,6 +363,14 @@ export class VoxelWorld {
   setSeed(newSeed) {
     this.seed = newSeed;
     this.noise = new SeededSimplexNoise(newSeed);
+  }
+
+  setRenderRadius(radius) {
+    this.renderRadius = Math.max(3, Math.min(8, radius));
+    this.unloadRadius = this.renderRadius + 2;
+    setRenderRadius(this.renderRadius);
+    this.lastPlayerChunkX = null;
+    this.lastPlayerChunkZ = null;
   }
 
   reloadAllChunks(playerPosition) {
@@ -807,11 +821,14 @@ export class VoxelWorld {
     );
   }
 
-  updateChunks(playerPosition, immediateCenter = false) {
+  updateChunks(playerPosition, immediateCenter = false, forwardVec = null) {
     const { chunkX: pCX, chunkZ: pCZ } = this.worldToChunkCoords(
       playerPosition.x,
       playerPosition.z
     );
+
+    const r = this.renderRadius || RENDER_RADIUS;
+    const ur = this.unloadRadius || UNLOAD_RADIUS;
 
     if (
       pCX !== this.lastPlayerChunkX ||
@@ -824,7 +841,7 @@ export class VoxelWorld {
       for (const [key, chunk] of this.chunks.entries()) {
         const dx = Math.abs(chunk.chunkX - pCX);
         const dz = Math.abs(chunk.chunkZ - pCZ);
-        if (dx > UNLOAD_RADIUS || dz > UNLOAD_RADIUS) {
+        if (dx > ur || dz > ur) {
           if (this.fluidSimulator) {
             this.fluidSimulator.onChunkUnloaded(chunk.chunkX, chunk.chunkZ);
           }
@@ -835,8 +852,8 @@ export class VoxelWorld {
 
       this.generationQueue = this.generationQueue.filter((item) => {
         const keep =
-          Math.abs(item.chunkX - pCX) <= RENDER_RADIUS &&
-          Math.abs(item.chunkZ - pCZ) <= RENDER_RADIUS;
+          Math.abs(item.chunkX - pCX) <= r &&
+          Math.abs(item.chunkZ - pCZ) <= r;
         if (!keep) {
           this.queuedChunkKeys.delete(this.chunkKey(item.chunkX, item.chunkZ));
         }
@@ -844,8 +861,8 @@ export class VoxelWorld {
       });
 
       const candidates = [];
-      for (let dx = -RENDER_RADIUS; dx <= RENDER_RADIUS; dx++) {
-        for (let dz = -RENDER_RADIUS; dz <= RENDER_RADIUS; dz++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dz = -r; dz <= r; dz++) {
           const cx = pCX + dx;
           const cz = pCZ + dz;
           const key = this.chunkKey(cx, cz);
@@ -854,10 +871,15 @@ export class VoxelWorld {
             !this.queuedChunkKeys.has(key) &&
             !this.inFlightKeys.has(key)
           ) {
+            let priorityScore = dx * dx + dz * dz;
+            if (forwardVec) {
+              const dot = forwardVec.x * dx + forwardVec.z * dz;
+              priorityScore -= dot * 3.0; // Heavily prioritize chunks ahead in flight path
+            }
             candidates.push({
               chunkX: cx,
               chunkZ: cz,
-              distSq: dx * dx + dz * dz,
+              distSq: priorityScore,
             });
             this.queuedChunkKeys.add(key);
           }

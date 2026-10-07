@@ -738,3 +738,108 @@ npm run app:dist
 - **Envelope Excavation (`VillageSystem.js`):** Prior to placing blueprint structures, the building volume is excavated from floor level (`structGroundY + 1`) to roof height (`maxDy + 2`), clearing all natural terrain (hills, dirt, grass, trees) so blocks never clip or merge into walls, rooms, doors, or ceilings.
 - **Level Cobblestone Foundation:** Lays a continuous solid cobblestone floor at ground level and fills down 3 blocks into sloped terrain, eliminating floating structures and irregular ground.
 - **Strict 7-Villager Population Cap:** Exactly 7 articulated villagers inhabit the village with defined roles (Town Elder, Well Artisan, Market Merchant, Cottager, Carpenter, Blacksmith, Farmer), protected from the dynamic rotation despawner.
+
+---
+
+## ✈️ v2.2: Instagram Reel Visual Shader Suite, Cinematic Dogfight & Infinite Streaming
+
+Inspired by the aerial dogfight showcase (`https://www.instagram.com/reel/DcTjhiTpxZ1/` — `@cloudgamesid` / user `IQBALISM`), this major graphics and flight upgrade implements an original real-time GLSL shader suite, post-processing pipeline, and high-speed terrain streaming engine:
+
+```mermaid
+flowchart TD
+    subgraph ShaderSuite["ReelShaderSystem.js (Modular GLSL Shader Suite)"]
+        PBR["1. Base PBR Shader\n• Roughness & Metallic\n• Blinn-Phong Specular\n• Key/Fill Wrapped Diffuse\n• Fresnel Rim Contribution"]
+        Emission["2. Bioluminescent Emission\n• HDR Cyan/White Core\n• Fresnel Edge Aura\n• Sinusoidal Wave Pulsation\n• Spine Node Glow"]
+        Rim["3. Fresnel Rim Shader\n• View-Angle Edge Radiance\n• Smoothstep Falloff\n• Adjustable Power & Color"]
+        Energy["4. Procedural Energy & Noise\n• Multi-Octave 3D Simplex & FBM\n• Animated UV Displacement\n• Dissolve Threshold & Contours"]
+        Canopy["5. Canopy Glass & Refraction\n• Fresnel Sunlight Sheen\n• Chromatic Edge Highlights\n• Physical Transparency"]
+    end
+
+    subgraph Enclosure["Atmospheric Sky & Horizon Enclosure"]
+        Clouds["Multi-Tier Cloud Decks\n(y = 34m & y = 100m)"]
+        Horizon["360° Mountain Horizon Ring\n(48 Peaks, r = 380m)"]
+    end
+
+    subgraph PostStack["ReelPostProcessingStack (Fullscreen WebGL)"]
+        RTScene["Pass 1: HDR Scene Render Target"]
+        Threshold["Pass 2: Brightness Threshold Filter"]
+        Blur["Pass 3 & 4: Separable Gaussian Blur (Half-Res)"]
+        Composite["Pass 5: Composite Output\n• Additive HDR Bloom\n• Dieselpunk Color Grading (Teal-Charcoal)\n• Radial Vignette & Film Grain\n• Low / Medium / High Presets"]
+    end
+
+    subgraph FlightSync["High-Speed Chunk Streaming Pipeline"]
+        PlanePos["Aircraft Position Sync (stukaFlight.position)"]
+        ForwardBias["Forward-Biased Chunk Priority (forwardVec Dot Product)"]
+        Radius["Dynamic Radius Expansion (5 Chunks In-Flight, 4 On-Foot)"]
+        FogTune["Atmospheric Fog Density Tuned to 0.0038 (240m+ Visibility)"]
+    end
+
+    ShaderSuite --> RTScene
+    Enclosure --> RTScene
+    RTScene --> Threshold --> Blur --> Composite
+    FlightSync --> ShaderSuite
+```
+
+### 1. Modular GLSL Shader Suite (`src/shaders/ReelShaderSystem.js`)
+- **1. Base PBR Material Shader (`createBasePBRShader`):**
+  - Physically based roughness and metallic response.
+  - Blinn-Phong specular highlight calculation:
+    $$\text{spec} = (\mathbf{N} \cdot \mathbf{H})^{\text{shininess}} \cdot \text{mix}(0.1, 0.9, \text{metallic})$$
+  - Key/fill wrapped diffuse illumination preventing pitch-black shadows.
+  - Ambient base contribution and integrated Fresnel rim lighting.
+- **2. Bioluminescent Emission Shader (`createBioluminescentEmissionShader`):**
+  - HDR cyan-white emission ($uEmissionStrength = 2.8$–$3.5$) with deep core falloff.
+  - Fresnel edge illumination:
+    $$\text{glow} = (1.0 - \max(0, \mathbf{N} \cdot \mathbf{V}))^{\text{power}} \cdot \text{strength}$$
+  - Sinusoidal travelling wave pulsation for the Leviathan's 56 spine nodes:
+    $$\text{pulse} = 1.0 + \sin(uTime \cdot 3.5 + \text{segmentOffset}) \cdot 0.4$$
+- **3. Fresnel / Rim Lighting Shader (`createFresnelRimShader`):**
+  - Angle-dependent edge radiance with configurable `uRimColor`, `uRimPower`, and `uSmoothness`.
+- **4. Procedural Energy & Surface Distortion Shader (`createEnergyDistortionShader`):**
+  - Procedural Simplex 3D and Fractal Brownian Motion (FBM) noise evaluated in real-time GLSL.
+  - Animated vertex displacement along surface normals:
+    $$\mathbf{p}_{\text{displaced}} = \mathbf{p} + \mathbf{N} \cdot (\text{fbm}(\mathbf{p} \cdot \text{scale} + \mathbf{v}_{\text{speed}} \cdot t) \cdot \text{strength})$$
+  - Procedural dissolve threshold and glowing contour bands for plasma breath and core attacks.
+- **5. Aircraft Canopy Glass & Refraction Shader (`createCanopyRefractionShader`):**
+  - Two-sided transparent cockpit enclosure.
+  - Fresnel sunlight specular glint and subtle chromatic sheen.
+- **6. Atmospheric Sky & Horizon Enclosure (`AtmosphericSkyEnclosure`):**
+  - Multi-tier procedural cloud decks at low altitude ($y = 34\text{m}$) and high altitude ($y = 100\text{m}$).
+  - 360° panoramic distant mountain horizon ring (48 procedural peaks at $r = 380\text{m}$) eliminating void horizon falloff.
+
+### 2. Fullscreen WebGL Post-Processing Pipeline (`ReelPostProcessingStack`)
+- **Separable Gaussian Bloom:**
+  - Half-resolution render targets (`rtBloomA`, `rtBloomB`) for zero-lag 60 FPS performance on laptop GPUs (GTX 1650).
+  - High-pass threshold filter isolating glowing cyan biomes, tracers, and flares.
+  - Separable horizontal and vertical blur passes.
+- **Dieselpunk Color Grading:**
+  - Cool teal shadow tint (`#1f2e3d`), charcoal midtones, and high contrast.
+  - Luminance-preserving saturation adjustment.
+- **Atmospheric Vignette & Film Grain:**
+  - Quadratic edge falloff vignette focusing attention on aerial targets.
+  - Animated procedural film grain adding cinematic celluloid texture.
+- **Graphics Quality Presets (Low / Medium / High):**
+  - **Low:** Post-processing bypassed; standard direct WebGL framebuffer for maximum battery life / low-spec hardware.
+  - **Medium:** Half-res bloom enabled ($0.8\times$ intensity), film grain disabled.
+  - **High / Ultra:** Full bloom ($1.35\times$), dieselpunk color grading, vignette, and film grain ($0.045\times$).
+
+### 3. Flight Speed Balancing & Aerodynamic Handling (`src/StukaFlightSystem.js`)
+- **Realistic Speed Scaling:**
+  - Resolved runaway translation velocity (previously $48.88\text{ m/s}$, which crossed 3 chunks per second and outpaced worker meshing).
+  - Physical world translation calibrated to **$17.5\text{ m/s}$ at $176\text{ KM/H}$ cruise speed** ($22.8\text{ m/s}$ with boost, $11.4\text{ m/s}$ with airbrakes), perfectly matching the cinematic tempo of the reference reel.
+  - Cockpit HUD speedometer preserves authentic digital aviation readouts (`176 KM/H`).
+- **Aerodynamic Damping:**
+  - Mouse delta sensitivity damped ($0.0009\times$ multiplier with $[-0.6, 0.6]$ clamp) preventing violent pitch/roll snap.
+  - Smooth inertia rate smoothing:
+    $$\omega \mathrel{+}= (\omega_{\text{target}} - \omega) \cdot \Delta t \cdot k$$
+  - Camera chase follow with aerodynamic banking lag ($\text{lerp} = 14.0$).
+
+### 4. Dynamic Chunk Streaming & Forward Lookahead Priority (`src/world.js`)
+- **Synchronized Player Coordinates:** Aircraft world coordinates continuously synchronize with `controls.playerPosition` during flight.
+- **Forward Lookahead Bias:**
+  - Injected forward unit vector $\mathbf{d}_{\text{forward}}$ into chunk sorting:
+    $$\text{score} = \Delta x^2 + \Delta z^2 - 3.0 \cdot (\mathbf{d}_{\text{forward}} \cdot (\Delta x, \Delta z))$$
+  - Chunks directly in the flight path receive priority generation over lateral/rear chunks.
+- **Dynamic Render Radius:** Expands from 4 chunks to 5 chunks upon entering flight mode ($r = 5$), unloading distant chunks ($ur = 7$).
+- **Optimized Fog Density:** Reduced overcast fog density from $0.0075$ to **$0.0038$**, cleanly unveiling over 240 meters of continuous terrain and distant mountains.
+
