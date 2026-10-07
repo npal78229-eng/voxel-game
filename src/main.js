@@ -35,14 +35,14 @@ import { ReelPostProcessingStack, AtmosphericSkyEnclosure } from './shaders/Reel
 // 1. SCENE — Luminous, wide-open silver-grey overcast sky from reference reel
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xd2dce4);
-scene.fog = new THREE.FogExp2(0xd2dce4, 0.0016); // Crystal clear open visibility to 450m+
+scene.fog = new THREE.Fog(0xd2dce4, 280, 1100); // Crystal clear open visibility to 280m, atmospheric fade out to 1100m
 
-// 2. CAMERA (Far plane 1200 for vast open mountain horizon and floating cloud decks)
+// 2. CAMERA (Far plane 1400 for vast open mountain horizon and floating cloud decks)
 const camera = new THREE.PerspectiveCamera(
   75,
   window.innerWidth / window.innerHeight,
   0.05,
-  1200
+  1400
 );
 
 // 3. RENDERER (Phase U0.3b: powerPreference 'high-performance', pixelRatio <= 2, SRGB)
@@ -1513,10 +1513,20 @@ function animate() {
   if (scene.fog) {
     if (isUnderwater) {
       scene.fog.color.set(FLUID_CONFIG.water.underwaterFogColor);
-      scene.fog.density = 0.065;
+      if (scene.fog.isFogExp2) {
+        scene.fog.density = 0.065;
+      } else {
+        scene.fog.near = 1.0;
+        scene.fog.far = 28.0;
+      }
     } else if (isInLava) {
       scene.fog.color.set(FLUID_CONFIG.lava.inLavaFogColor);
-      scene.fog.density = 0.40;
+      if (scene.fog.isFogExp2) {
+        scene.fog.density = 0.40;
+      } else {
+        scene.fog.near = 0.5;
+        scene.fog.far = 8.0;
+      }
     }
   }
   mobs.update(

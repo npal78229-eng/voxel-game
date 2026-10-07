@@ -55,6 +55,15 @@ export class StukaFlightSystem {
     this.mouseOffset = { x: 0, y: 0 };
     this.isFiring = false;
 
+    // Free Look & Camera Kinematics (Zero-Jitter Camera Tracking)
+    this.isFreeLooking = false;
+    this.freeLookYaw = 0;
+    this.freeLookPitch = 0;
+    this.mouseLookAhead = { x: 0, y: 0 };
+    this.rightMouseDown = false;
+    this.rightMouseDownTime = 0;
+    this.camQuat = null;
+
     // Propeller & Animation
     this.propellerMesh = null;
     this.propellerAngle = 0;
@@ -118,8 +127,18 @@ export class StukaFlightSystem {
         depthWrite: false,
         side: THREE.DoubleSide,
       }),
-      crossWhite: new THREE.MeshBasicMaterial({ color: 0xffffff }),
-      crossBlack: new THREE.MeshBasicMaterial({ color: 0x111111 }),
+      crossWhite: new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      }),
+      crossBlack: new THREE.MeshBasicMaterial({
+        color: 0x111111,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      }),
       tracer: createBioluminescentEmissionShader({
         emissionColor: 0xffea55,
         coreColor: 0xffffff,
@@ -214,16 +233,22 @@ export class StukaFlightSystem {
     wingTipR.castShadow = true;
     root.add(wingOuterR, wingTipR);
 
-    // Balkenkreuz Crosses on Left & Right wings
-    [-3.6, 3.6].forEach(cx => {
-      const crossW = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 0.85), this.mats.crossWhite);
-      crossW.rotation.x = -Math.PI * 0.5;
-      crossW.position.set(cx, 0.24, 0.7);
-      const crossB = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.65), this.mats.crossBlack);
-      crossB.rotation.x = -Math.PI * 0.5;
-      crossB.position.set(cx, 0.245, 0.7);
-      root.add(crossW, crossB);
-    });
+    // Balkenkreuz Crosses on Left & Right wings (Parented directly to wings with positive surface offset to eliminate clipping & Z-fighting)
+    const crossWL = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 0.85), this.mats.crossWhite);
+    crossWL.rotation.x = -Math.PI * 0.5;
+    crossWL.position.set(0.2, 0.063, 0);
+    const crossBL = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.65), this.mats.crossBlack);
+    crossBL.rotation.x = -Math.PI * 0.5;
+    crossBL.position.set(0.2, 0.065, 0);
+    wingOuterL.add(crossWL, crossBL);
+
+    const crossWR = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 0.85), this.mats.crossWhite);
+    crossWR.rotation.x = -Math.PI * 0.5;
+    crossWR.position.set(-0.2, 0.063, 0);
+    const crossBR = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.65), this.mats.crossBlack);
+    crossBR.rotation.x = -Math.PI * 0.5;
+    crossBR.position.set(-0.2, 0.065, 0);
+    wingOuterR.add(crossWR, crossBR);
 
     // Dive brake slats under the wings
     [-3.5, 3.5].forEach(dx => {
@@ -304,7 +329,8 @@ export class StukaFlightSystem {
 
     // High-RPM Spinning Propeller Blur Disc
     const blurDisc = new THREE.Mesh(new THREE.CircleGeometry(1.32, 24), this.mats.propellerBlur);
-    blurDisc.position.set(0, 0, 0.05);
+    blurDisc.position.set(0, 0, 0.08);
+    blurDisc.renderOrder = 10;
     this.propellerGroup.add(blurDisc);
 
     root.add(this.propellerGroup);
@@ -381,6 +407,22 @@ export class StukaFlightSystem {
           <div>7.92mm MG-17 <span style="font-size: 13px;">&#8734;</span></div>
           <div style="color: #e2e8f0;">FLARE READY <span id="hud-flare-count">8</span> <span style="color: #94a3b8;">[V]</span></div>
         </div>
+
+        <!-- Dynamic Sky Leviathan Boss Tracker Readout -->
+        <div id="stuka-boss-reticle-tracker" style="
+          margin-top: 6px;
+          font-size: 11px;
+          color: #38bdf8;
+          font-weight: bold;
+          text-shadow: 1px 1px 2px #000, 0 0 6px rgba(56, 189, 248, 0.85);
+          letter-spacing: 0.5px;
+          display: none;
+        ">
+          TARGET: SKY LEVIATHAN [<span id="stuka-reticle-boss-dist">---</span>m]
+        </div>
+        <div style="font-size: 9px; color: #cbd5e1; text-shadow: 1px 1px 2px #000; margin-top: 3px; letter-spacing: 0.5px;">
+          HOLD [R-CLICK] OR [ALT] TO FREE-LOOK &bull; [B / 2] BOMB
+        </div>
       </div>
 
       <!-- BOTTOM CENTER COMPASS DIAL & HEARTS -->
@@ -396,6 +438,19 @@ export class StukaFlightSystem {
         <!-- Player Hearts Bar -->
         <div id="stuka-hearts-bar" style="display: flex; gap: 3px; margin-bottom: 6px; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.8));">
           ${Array(10).fill(0).map(() => `<span style="color: #ef4444; font-size: 16px;">❤</span>`).join('')}
+        </div>
+
+        <!-- Boss Direction & Bearing Status Banner -->
+        <div id="stuka-boss-status-banner" style="
+          margin-bottom: 5px;
+          font-size: 11px;
+          font-weight: bold;
+          color: #38bdf8;
+          text-shadow: 1px 1px 3px #000, 0 0 8px rgba(56, 189, 248, 0.85);
+          display: none;
+          letter-spacing: 0.5px;
+        ">
+          LEVIATHAN: <span id="stuka-boss-dist-val">---</span>m &bull; <span id="stuka-boss-dir-val">LOCATING...</span>
         </div>
 
         <!-- Compass Circular Dial Gauge -->
@@ -425,6 +480,31 @@ export class StukaFlightSystem {
             <div style="position: absolute; top: 18px; left: 20px; font-size: 9px; color: #a0aec0;">NW</div>
             <div style="position: absolute; bottom: 18px; right: 20px; font-size: 9px; color: #a0aec0;">SE</div>
             <div style="position: absolute; bottom: 18px; left: 20px; font-size: 9px; color: #a0aec0;">SW</div>
+
+            <!-- Glowing Cyan Leviathan Bearing Diamond on Compass Rose -->
+            <div id="stuka-boss-compass-marker" style="
+              position: absolute;
+              top: 50%;
+              left: 50%;
+              width: 14px;
+              height: 14px;
+              margin-left: -7px;
+              margin-top: -7px;
+              display: none;
+              align-items: center;
+              justify-content: center;
+              filter: drop-shadow(0 0 5px #00e5ff);
+              transition: transform 0.05s linear;
+            ">
+              <div style="
+                width: 8px;
+                height: 8px;
+                background: #00e5ff;
+                transform: rotate(45deg);
+                border: 1px solid #ffffff;
+                box-shadow: 0 0 6px #00e5ff;
+              "></div>
+            </div>
           </div>
           <!-- Red Needle Indicator -->
           <div style="
@@ -525,7 +605,86 @@ export class StukaFlightSystem {
         </div>
 
         <div style="margin-top: 6px; font-size: 10px; color: #94a3b8;">
-          [L-CLICK] Fire Guns &bull; [R-CLICK] Drop Bomb &bull; [V] Flares &bull; [F7] Exit
+          [L-CLICK] Fire Guns &bull; [R-CLICK / ALT] Free-Look &bull; [B / 2] Bomb &bull; [V] Flares &bull; [F7] Exit
+        </div>
+      </div>
+
+      <!-- Off-Screen 3D Boss Locator Arrow Indicator (Points in screen direction to turn mouse) -->
+      <div id="stuka-boss-edge-indicator" style="
+        position: absolute;
+        display: none;
+        pointer-events: none;
+        z-index: 99999;
+        transform: translate(-50%, -50%);
+      ">
+        <div id="stuka-boss-edge-arrow" style="
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 2px;
+          filter: drop-shadow(0 0 8px #00e5ff);
+          transform-origin: center center;
+        ">
+          <div style="
+            width: 0;
+            height: 0;
+            border-left: 9px solid transparent;
+            border-right: 9px solid transparent;
+            border-bottom: 16px solid #00e5ff;
+            filter: drop-shadow(0 0 6px #00e5ff);
+          "></div>
+          <div style="
+            background: rgba(10, 25, 35, 0.92);
+            border: 1px solid #00e5ff;
+            border-radius: 3px;
+            padding: 2px 6px;
+            color: #ffffff;
+            font-size: 10px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+          ">
+            <span style="color: #00e5ff;">◆ BOSS</span> <span id="stuka-boss-edge-dist">150m</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- On-Screen Tactical Target Bracket (When Leviathan is in screen view) -->
+      <div id="stuka-boss-target-bracket" style="
+        position: absolute;
+        display: none;
+        pointer-events: none;
+        z-index: 99999;
+        transform: translate(-50%, -50%);
+        text-align: center;
+      ">
+        <div style="
+          width: 68px;
+          height: 68px;
+          border: 2px solid rgba(56, 189, 248, 0.85);
+          position: relative;
+          box-shadow: 0 0 10px rgba(56, 189, 248, 0.4), inset 0 0 10px rgba(56, 189, 248, 0.2);
+        ">
+          <!-- Corner ticks -->
+          <div style="position: absolute; top: -2px; left: -2px; width: 8px; height: 8px; border-top: 3px solid #fff; border-left: 3px solid #fff;"></div>
+          <div style="position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; border-top: 3px solid #fff; border-right: 3px solid #fff;"></div>
+          <div style="position: absolute; bottom: -2px; left: -2px; width: 8px; height: 8px; border-bottom: 3px solid #fff; border-left: 3px solid #fff;"></div>
+          <div style="position: absolute; bottom: -2px; right: -2px; width: 8px; height: 8px; border-bottom: 3px solid #fff; border-right: 3px solid #fff;"></div>
+          <div style="position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; background: #00e5ff; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 6px #00e5ff;"></div>
+        </div>
+        <div style="
+          margin-top: 4px;
+          background: rgba(10, 25, 35, 0.88);
+          border: 1px solid rgba(56, 189, 248, 0.6);
+          border-radius: 3px;
+          padding: 2px 6px;
+          color: #fff;
+          font-size: 10px;
+          font-weight: bold;
+          letter-spacing: 0.5px;
+          white-space: nowrap;
+        ">
+          <span style="color: #00e5ff;">SKY LEVIATHAN</span> &bull; <span id="stuka-boss-bracket-dist">120m</span>
         </div>
       </div>
     `;
@@ -544,14 +703,28 @@ export class StukaFlightSystem {
       if (e.code === 'Digit1') {
         this.activeWeaponSlot = 1;
       }
-      if (e.code === 'Digit2') {
+      if (e.code === 'Digit2' || e.code === 'KeyB') {
         this.activeWeaponSlot = 2;
         this.dropBomb();
+      }
+      if (e.code === 'AltLeft' || e.code === 'AltRight') {
+        this.isFreeLooking = true;
       }
     });
 
     window.addEventListener('keyup', (e) => {
       this.keys[e.code] = false;
+      if (e.code === 'AltLeft' || e.code === 'AltRight') {
+        if (!this.rightMouseDown) {
+          this.isFreeLooking = false;
+        }
+      }
+    });
+
+    window.addEventListener('contextmenu', (e) => {
+      if (this.isActive) {
+        e.preventDefault();
+      }
     });
 
     window.addEventListener('mousedown', (e) => {
@@ -559,20 +732,48 @@ export class StukaFlightSystem {
       if (e.button === 0) {
         this.isFiring = true;
       } else if (e.button === 2) {
-        this.dropBomb();
+        // Right click: Free-look mode to look around and locate the boss
+        this.rightMouseDown = true;
+        this.isFreeLooking = true;
+        this.rightMouseDownTime = performance.now();
       }
     });
 
     window.addEventListener('mouseup', (e) => {
+      if (!this.isActive) return;
       if (e.button === 0) {
         this.isFiring = false;
+      } else if (e.button === 2) {
+        const pressDuration = performance.now() - (this.rightMouseDownTime || 0);
+        this.rightMouseDown = false;
+        if (!this.keys['AltLeft'] && !this.keys['AltRight']) {
+          this.isFreeLooking = false;
+        }
+        // Quick right-click tap (<220ms without dragging) also drops bomb!
+        if (pressDuration < 220 && Math.abs(this.freeLookYaw) < 0.12 && Math.abs(this.freeLookPitch) < 0.12) {
+          this.dropBomb();
+        }
       }
     });
 
     window.addEventListener('mousemove', (e) => {
       if (!this.isActive || !document.pointerLockElement) return;
-      this.mouseOffset.x = Math.max(-0.6, Math.min(0.6, this.mouseOffset.x + e.movementX * 0.0009));
-      this.mouseOffset.y = Math.max(-0.6, Math.min(0.6, this.mouseOffset.y + e.movementY * 0.0009));
+
+      if (this.isFreeLooking || this.rightMouseDown || this.keys['AltLeft'] || this.keys['AltRight']) {
+        // Free-look mode: Orbit camera around aircraft in 360 degrees to spot and track boss
+        this.freeLookYaw -= e.movementX * 0.0035;
+        this.freeLookPitch = Math.max(-1.3, Math.min(1.3, this.freeLookPitch - e.movementY * 0.0035));
+      } else {
+        // Responsive flight steering
+        this.mouseOffset.x += e.movementX * 0.0022;
+        this.mouseOffset.y += e.movementY * 0.0022;
+        this.mouseOffset.x = Math.max(-1.6, Math.min(1.6, this.mouseOffset.x));
+        this.mouseOffset.y = Math.max(-1.6, Math.min(1.6, this.mouseOffset.y));
+
+        // Subtle look-ahead peeking while steering
+        this.mouseLookAhead.x = Math.max(-0.45, Math.min(0.45, this.mouseLookAhead.x - e.movementX * 0.0006));
+        this.mouseLookAhead.y = Math.max(-0.35, Math.min(0.35, this.mouseLookAhead.y - e.movementY * 0.0006));
+      }
     });
   }
 
@@ -663,18 +864,36 @@ export class StukaFlightSystem {
     this.position.set(playerPosition.x, startY, playerPosition.z);
     this.rotation.set(0, playerCamera ? playerCamera.rotation.y : 0, 0);
     this.planeGroup.position.copy(this.position);
+    this.planeGroup.rotation.copy(this.rotation);
     this.planeGroup.visible = true;
 
-    // Expand chunk streaming radius for smooth flight over vast terrain
+    // Reset camera state and angles
+    this.isFreeLooking = false;
+    this.freeLookYaw = 0;
+    this.freeLookPitch = 0;
+    this.mouseLookAhead.x = 0;
+    this.mouseLookAhead.y = 0;
+    this.mouseOffset.x = 0;
+    this.mouseOffset.y = 0;
+    this.camQuat = new THREE.Quaternion().copy(this.planeGroup.quaternion);
+
+    // Optimize camera near plane to 0.35 (Multiplies 24-bit Z-buffer precision by 7x, eliminating Z-fighting on aircraft)
+    if (this.camera) {
+      this.camera.near = 0.35;
+      this.camera.far = 1400;
+      this.camera.updateProjectionMatrix();
+    }
+
+    // Expand chunk streaming radius to 8 chunks (256m zone) for smooth flight over vast terrain
     if (this.world && typeof this.world.setRenderRadius === 'function') {
-      this.world.setRenderRadius(6);
+      this.world.setRenderRadius(8);
     }
 
     // Snap camera immediately to reel chase position (no ground lerping lag!)
-    const camOffset = new THREE.Vector3(0, 1.7, -6.8).applyEuler(this.rotation);
+    const camOffset = new THREE.Vector3(0, 1.75, -6.8).applyQuaternion(this.camQuat);
     this.camera.position.copy(this.position).add(camOffset);
     const forward = this.getForwardVector();
-    this.camera.lookAt(this.position.clone().add(forward.clone().multiplyScalar(24.0)).add(new THREE.Vector3(0, 1.0, 0)));
+    this.camera.lookAt(this.position.clone().add(forward.clone().multiplyScalar(35.0)).add(new THREE.Vector3(0, 0.8, 0)));
 
     if (this.hudContainer) {
       this.hudContainer.style.display = 'block';
@@ -688,10 +907,19 @@ export class StukaFlightSystem {
     this.isActive = false;
     this.planeGroup.visible = false;
 
+    // Restore standard camera near and far planes
+    if (this.camera) {
+      this.camera.near = 0.05;
+      this.camera.far = 1200;
+      this.camera.updateProjectionMatrix();
+    }
+
     // Restore standard on-foot chunk radius
     if (this.world && typeof this.world.setRenderRadius === 'function') {
       this.world.setRenderRadius(4);
     }
+
+    this.hideBossHUD();
 
     if (this.hudContainer) {
       this.hudContainer.style.display = 'none';
@@ -810,7 +1038,6 @@ export class StukaFlightSystem {
     // Pitch from W / S or mouse Y
     if (this.keys['KeyW']) targetPitch -= 0.85;
     if (this.keys['KeyS']) targetPitch += 0.85;
-    targetPitch += this.mouseOffset.y * 1.0;
 
     // Roll & Rudder from A / D or mouse X
     if (this.keys['KeyA']) {
@@ -821,12 +1048,26 @@ export class StukaFlightSystem {
       targetRoll -= 1.3;
       targetYaw -= 0.65;
     }
-    targetRoll -= this.mouseOffset.x * 1.5;
-    targetYaw -= this.mouseOffset.x * 0.7;
 
-    // Reset mouse delta accumulation
-    this.mouseOffset.x *= 0.12;
-    this.mouseOffset.y *= 0.12;
+    // Apply responsive mouse steering when not in free-look
+    if (!this.isFreeLooking) {
+      targetPitch += this.mouseOffset.y * 1.3;
+      targetRoll -= this.mouseOffset.x * 1.8;
+      targetYaw -= this.mouseOffset.x * 0.95;
+    }
+
+    // Smooth exponential decay of mouse control impulses
+    this.mouseOffset.x *= Math.pow(0.04, deltaTime * 8);
+    this.mouseOffset.y *= Math.pow(0.04, deltaTime * 8);
+
+    // Smoothly spring free-look camera angles back when not holding free-look
+    if (!this.isFreeLooking) {
+      const spring = Math.min(1.0, deltaTime * 8.0);
+      this.freeLookYaw += (0 - this.freeLookYaw) * spring;
+      this.freeLookPitch += (0 - this.freeLookPitch) * spring;
+      this.mouseLookAhead.x += (0 - this.mouseLookAhead.x) * spring;
+      this.mouseLookAhead.y += (0 - this.mouseLookAhead.y) * spring;
+    }
 
     // Boost & Airbrakes
     let targetKmh = 176;
@@ -881,11 +1122,28 @@ export class StukaFlightSystem {
       this.propellerGroup.rotation.z = this.propellerAngle;
     }
 
-    // 2. Camera Chase Logic with Authentic Reel Framing (Centered Behind & Slightly Elevated)
-    const camOffset = new THREE.Vector3(0, 1.7, -6.8).applyEuler(this.rotation);
-    const desiredCamPos = this.position.clone().add(camOffset);
-    this.camera.position.lerp(desiredCamPos, Math.min(1.0, deltaTime * 16.0));
-    const lookTarget = this.position.clone().add(forward.clone().multiplyScalar(24.0)).add(new THREE.Vector3(0, 1.0, 0));
+    // 2. Camera Chase Logic with Zero-Jitter Kinematic Tracking & 360-deg Free Look
+    if (!this.camQuat) {
+      this.camQuat = new THREE.Quaternion().copy(this.planeGroup.quaternion);
+    }
+    // Slerp camera orientation smoothly for cinematic banking & pitch lag
+    const slerpFactor = Math.min(1.0, deltaTime * 10.0);
+    this.camQuat.slerp(this.planeGroup.quaternion, slerpFactor);
+
+    // Combine aircraft orientation with player free-look and steering peek
+    const totalYaw = this.freeLookYaw + (this.isFreeLooking ? 0 : this.mouseLookAhead.x);
+    const totalPitch = this.freeLookPitch + (this.isFreeLooking ? 0 : this.mouseLookAhead.y);
+    const lookRot = new THREE.Euler(totalPitch, totalYaw, 0, 'YXZ');
+    const lookQuat = new THREE.Quaternion().setFromEuler(lookRot);
+    const totalCamQuat = this.camQuat.clone().multiply(lookQuat);
+
+    // Anchor camera offset directly to this.position -> strictly ZERO position jitter!
+    const camOffset = new THREE.Vector3(0, 1.75, -6.8).applyQuaternion(totalCamQuat);
+    this.camera.position.copy(this.position).add(camOffset);
+
+    // Look target ahead along camera orientation
+    const forwardDir = new THREE.Vector3(0, 0, 1).applyQuaternion(totalCamQuat);
+    const lookTarget = this.position.clone().addScaledVector(forwardDir, 35.0).add(new THREE.Vector3(0, 0.8, 0));
     this.camera.lookAt(lookTarget);
 
     // 3. Audio Frequency & Dive Siren Modulation
@@ -992,5 +1250,145 @@ export class StukaFlightSystem {
       const deg = (this.rotation.y * 180) / Math.PI;
       compassFaceEl.style.transform = `rotate(${-deg}deg)`;
     }
+
+    // 6. Update Sky Leviathan Boss Locator & 3D Tactical Tracking
+    this.updateBossLocator(targetLeviathan);
+  }
+
+  /**
+   * Tracks the Sky Leviathan boss position in 3D world and screen space:
+   * 1. Compass Bearing Diamond: points to Leviathan heading on the compass rose.
+   * 2. Off-Screen 3D Locator Arrow: points in 2D screen direction where player should move mouse.
+   * 3. On-Screen Target Bracket: locks onto Leviathan head in 3D viewport.
+   * 4. Distance & Direction Readouts.
+   */
+  updateBossLocator(targetLeviathan) {
+    const reticleTrackerEl = document.getElementById('stuka-boss-reticle-tracker');
+    const reticleDistEl = document.getElementById('stuka-reticle-boss-dist');
+    const statusBannerEl = document.getElementById('stuka-boss-status-banner');
+    const statusDistEl = document.getElementById('stuka-boss-dist-val');
+    const statusDirEl = document.getElementById('stuka-boss-dir-val');
+    const compassMarkerEl = document.getElementById('stuka-boss-compass-marker');
+    const edgeIndicatorEl = document.getElementById('stuka-boss-edge-indicator');
+    const edgeArrowEl = document.getElementById('stuka-boss-edge-arrow');
+    const edgeDistEl = document.getElementById('stuka-boss-edge-dist');
+    const bracketEl = document.getElementById('stuka-boss-target-bracket');
+    const bracketDistEl = document.getElementById('stuka-boss-bracket-dist');
+
+    if (!targetLeviathan || !targetLeviathan.isActive || targetLeviathan.isDead || !targetLeviathan.headPosition) {
+      this.hideBossHUD();
+      return;
+    }
+
+    const bossPos = targetLeviathan.headPosition;
+    const toBoss = bossPos.clone().sub(this.position);
+    const bossDist = Math.round(toBoss.length());
+
+    // Reticle & Status Banner text
+    if (reticleTrackerEl) {
+      reticleTrackerEl.style.display = 'block';
+      if (reticleDistEl) reticleDistEl.innerText = bossDist;
+    }
+    if (statusBannerEl) {
+      statusBannerEl.style.display = 'block';
+      if (statusDistEl) statusDistEl.innerText = bossDist;
+      if (statusDirEl) {
+        const forward = this.getForwardVector();
+        const toBossNorm = toBoss.clone().normalize();
+        const dotFwd = forward.dot(toBossNorm);
+        let dirLabel = 'AHEAD';
+        if (dotFwd < -0.5) dirLabel = 'BEHIND';
+        else if (dotFwd < 0.6) {
+          const crossY = forward.x * toBossNorm.z - forward.z * toBossNorm.x;
+          dirLabel = crossY > 0 ? 'FLANK LEFT' : 'FLANK RIGHT';
+        }
+        if (toBoss.y > 25) dirLabel += ' (HIGH)';
+        else if (toBoss.y < -25) dirLabel += ' (LOW)';
+        statusDirEl.innerText = dirLabel;
+      }
+    }
+
+    // Compass Marker Positioning (Inside rotating compass face)
+    if (compassMarkerEl) {
+      compassMarkerEl.style.display = 'flex';
+      // Angle in XZ plane relative to world
+      const worldAngle = Math.atan2(toBoss.x, toBoss.z);
+      // Place marker around compass dial edge at radius 44px
+      const markerX = Math.sin(worldAngle) * 44;
+      const markerY = -Math.cos(worldAngle) * 44;
+      compassMarkerEl.style.transform = `translate(${markerX}px, ${markerY}px)`;
+    }
+
+    // Screen Space 3D Projection for Locator Arrow & Target Bracket
+    const proj = bossPos.clone().project(this.camera);
+    const isBehindCamera = proj.z > 1.0;
+
+    let screenXNorm = proj.x;
+    let screenYNorm = proj.y;
+
+    if (isBehindCamera) {
+      // Invert coordinates if behind camera so indicator points back
+      screenXNorm = -screenXNorm;
+      screenYNorm = -screenYNorm;
+      if (Math.abs(screenXNorm) < 0.001 && Math.abs(screenYNorm) < 0.001) {
+        screenYNorm = -1.0;
+      }
+    }
+
+    const isOnScreen = !isBehindCamera && Math.abs(screenXNorm) < 0.82 && Math.abs(screenYNorm) < 0.82;
+
+    if (isOnScreen) {
+      // On-Screen: Show tactical target bracket over Leviathan head
+      if (edgeIndicatorEl) edgeIndicatorEl.style.display = 'none';
+      if (bracketEl) {
+        bracketEl.style.display = 'block';
+        const px = (screenXNorm * 0.5 + 0.5) * window.innerWidth;
+        const py = (-screenYNorm * 0.5 + 0.5) * window.innerHeight;
+        bracketEl.style.left = `${px}px`;
+        bracketEl.style.top = `${py}px`;
+        if (bracketDistEl) bracketDistEl.innerText = `${bossDist}m`;
+      }
+    } else {
+      // Off-Screen: Show 3D screen-edge locator arrow pointing toward boss
+      if (bracketEl) bracketEl.style.display = 'none';
+      if (edgeIndicatorEl) {
+        edgeIndicatorEl.style.display = 'block';
+
+        const halfW = (window.innerWidth * 0.5) - 64;
+        const halfH = (window.innerHeight * 0.5) - 64;
+
+        const scaleX = screenXNorm !== 0 ? Math.abs(halfW / screenXNorm) : 9999;
+        const scaleY = screenYNorm !== 0 ? Math.abs(halfH / screenYNorm) : 9999;
+        const scale = Math.min(scaleX, scaleY);
+
+        const edgeX = (window.innerWidth * 0.5) + screenXNorm * scale;
+        const edgeY = (window.innerHeight * 0.5) - screenYNorm * scale;
+
+        edgeIndicatorEl.style.left = `${edgeX}px`;
+        edgeIndicatorEl.style.top = `${edgeY}px`;
+
+        // Arrow points outward from center toward boss
+        const screenAngleDeg = (Math.atan2(-screenYNorm, screenXNorm) * 180 / Math.PI) + 90;
+        if (edgeArrowEl) {
+          edgeArrowEl.style.transform = `rotate(${screenAngleDeg}deg)`;
+        }
+        if (edgeDistEl) {
+          edgeDistEl.innerText = `${bossDist}m`;
+        }
+      }
+    }
+  }
+
+  hideBossHUD() {
+    [
+      'stuka-boss-reticle-tracker',
+      'stuka-boss-status-banner',
+      'stuka-boss-compass-marker',
+      'stuka-boss-edge-indicator',
+      'stuka-boss-target-bracket',
+    ].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
   }
 }

@@ -11,13 +11,13 @@ import { createMinecraftWaterMaterial, WaterAnimator, WATER_RENDER_RULES } from 
 // ============================================================================
 
 export let RENDER_RADIUS = 4;
-export let UNLOAD_RADIUS = 6;
+export let UNLOAD_RADIUS = 7;
 export let MAX_CHUNKS_PER_FRAME = 4;
 
 export function setRenderRadius(r) {
-  RENDER_RADIUS = Math.max(3, Math.min(8, r));
-  UNLOAD_RADIUS = RENDER_RADIUS + 2;
-  MAX_CHUNKS_PER_FRAME = Math.min(6, RENDER_RADIUS);
+  RENDER_RADIUS = Math.max(3, Math.min(10, r));
+  UNLOAD_RADIUS = RENDER_RADIUS + 3;
+  MAX_CHUNKS_PER_FRAME = Math.min(8, RENDER_RADIUS);
 }
 
 export const sharedShaderUniforms = {
@@ -366,8 +366,8 @@ export class VoxelWorld {
   }
 
   setRenderRadius(radius) {
-    this.renderRadius = Math.max(3, Math.min(8, radius));
-    this.unloadRadius = this.renderRadius + 2;
+    this.renderRadius = Math.max(3, Math.min(10, radius));
+    this.unloadRadius = this.renderRadius + 3;
     setRenderRadius(this.renderRadius);
     this.lastPlayerChunkX = null;
     this.lastPlayerChunkZ = null;

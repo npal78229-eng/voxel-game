@@ -844,16 +844,17 @@ export class SkyLeviathan {
     // Open, luminous silver-grey overcast sky matching the viral reel (@cloudgamesid)
     const overcastColor = new THREE.Color(0xd2dce4);
     scene.background = overcastColor;
-    if (scene.fog) {
+    if (scene.fog && scene.fog.isFog) {
       scene.fog.color.copy(overcastColor);
-      scene.fog.density = 0.0016; // Vast open visibility extending to 450m+
+      scene.fog.near = 280;
+      scene.fog.far = 1100;
     } else {
-      scene.fog = new THREE.FogExp2(0xd2dce4, 0.0016);
+      scene.fog = new THREE.Fog(0xd2dce4, 280, 1100);
     }
 
     if (this.skyEnclosure) {
       this.skyEnclosure.group.visible = true;
     }
-    console.log('[SkyLeviathan] Applied luminous silver overcast sky (0xd2dce4) & open fog (0.0016).');
+    console.log('[SkyLeviathan] Applied luminous silver overcast sky (0xd2dce4) & open linear fog (280-1100m).');
   }
 }

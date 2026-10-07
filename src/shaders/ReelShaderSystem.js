@@ -607,12 +607,16 @@ export class AtmosphericSkyEnclosure {
   }
 
   buildDistantMountainHorizon() {
-    // 360-degree panoramic distant mountain silhouette ring at 520m radius
+    // 360-degree panoramic distant mountain silhouette ring at 520m and 760m radius
     const mountainGroup = new THREE.Group();
-    const mountainMat = new THREE.MeshLambertMaterial({
+    const mountainMatInner = new THREE.MeshLambertMaterial({
       color: 0x8296a6, // Soft atmospheric silver-blue mountain silhouette
     });
+    const mountainMatOuter = new THREE.MeshLambertMaterial({
+      color: 0x98aab8, // Lighter atmospheric distant horizon range
+    });
 
+    // Inner Ridge (520m radius)
     const numPeaks = 56;
     for (let i = 0; i < numPeaks; i++) {
       const angle = (i / numPeaks) * Math.PI * 2;
@@ -621,13 +625,32 @@ export class AtmosphericSkyEnclosure {
       const w = 55 + ((i * 13) % 45);
 
       const peakGeo = new THREE.ConeGeometry(w, h, 5);
-      const peak = new THREE.Mesh(peakGeo, mountainMat);
+      const peak = new THREE.Mesh(peakGeo, mountainMatInner);
       peak.position.set(
         Math.cos(angle) * radius,
         h * 0.38,
         Math.sin(angle) * radius
       );
       peak.rotation.y = angle + Math.PI * 0.25;
+      mountainGroup.add(peak);
+    }
+
+    // Outer Epic Horizon Ridge (760m radius)
+    const numOuterPeaks = 48;
+    for (let i = 0; i < numOuterPeaks; i++) {
+      const angle = (i / numOuterPeaks) * Math.PI * 2 + 0.05;
+      const radius = 740 + (i % 3) * 40;
+      const h = 110 + ((i * 31) % 85);
+      const w = 80 + ((i * 17) % 60);
+
+      const peakGeo = new THREE.ConeGeometry(w, h, 5);
+      const peak = new THREE.Mesh(peakGeo, mountainMatOuter);
+      peak.position.set(
+        Math.cos(angle) * radius,
+        h * 0.35,
+        Math.sin(angle) * radius
+      );
+      peak.rotation.y = angle;
       mountainGroup.add(peak);
     }
 
