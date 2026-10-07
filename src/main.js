@@ -26,6 +26,7 @@ import { DragonArenaSystem } from './DragonArenaSystem.js';
 import { VillageSystem } from './world/VillageSystem.js';
 import { StukaFlightSystem } from './StukaFlightSystem.js';
 import { SkyLeviathan } from './SkyLeviathan.js';
+import { DragonFlightSystem } from './DragonFlightSystem.js';
 import { ReelPostProcessingStack, AtmosphericSkyEnclosure } from './shaders/ReelShaderSystem.js';
 
 // ============================================================================
@@ -117,10 +118,12 @@ const dragonArena = new DragonArenaSystem(scene, camera, renderer);
 const villageSystem = new VillageSystem(world, scene, mobs);
 const stukaFlight = new StukaFlightSystem(scene, camera, renderer, world);
 const skyLeviathan = new SkyLeviathan(scene, camera, renderer);
+const dragonFlight = new DragonFlightSystem(scene, camera, renderer, world);
 const reelPostStack = new ReelPostProcessingStack(renderer, scene, camera);
 const skyEnclosure = new AtmosphericSkyEnclosure(scene);
 window.stukaFlight = stukaFlight;
 window.skyLeviathan = skyLeviathan;
+window.dragonFlight = dragonFlight;
 window.reelPostStack = reelPostStack;
 window.skyEnclosure = skyEnclosure;
 
@@ -477,6 +480,8 @@ window.addEventListener('keydown', (event) => {
       if (vignetteEl) vignetteEl.style.display = 'none';
       showToast('Exited Stuka Flight Mode (On Foot)');
     } else {
+      if (dragonFlight.isActive) dragonFlight.exitFlightMode(controls);
+      if (dragonArena.isActive) dragonArena.exitArena(controls);
       skyLeviathan.applyReelAtmosphere(scene, renderer);
       if (vignetteEl) vignetteEl.style.display = 'block';
       stukaFlight.enterFlightMode(controls.playerPosition, camera);
@@ -489,15 +494,36 @@ window.addEventListener('keydown', (event) => {
     return;
   }
 
-  // F8 toggles Dragon Boss Dimension (Calamity Caldera)
+  // F8 toggles Golden Sunset Dragon Rider Mount Mode (Viral Instagram Reel)
   if (event.code === 'F8') {
+    event.preventDefault();
+    const vignetteEl = document.getElementById('reel-cinematic-vignette');
+    if (dragonFlight.isActive) {
+      dragonFlight.exitFlightMode(controls);
+      showToast('Dismounted Golden Wyvern (On Foot)');
+    } else {
+      if (stukaFlight.isActive) {
+        stukaFlight.exitFlightMode(controls);
+        if (vignetteEl) vignetteEl.style.display = 'none';
+      }
+      if (dragonArena.isActive) dragonArena.exitArena(controls);
+      dragonFlight.enterFlightMode(controls.playerPosition, camera);
+      showToast('🐉 Mounted Soaring Golden Wyvern! [L-Click]: Fireball, [R-Click/E]: Roar, [Space]: Boost, [V]: Fire Surge', 6000);
+    }
+    return;
+  }
+
+  // F9 toggles Dragon Boss Dimension (Calamity Caldera)
+  if (event.code === 'F9') {
     event.preventDefault();
     if (dragonArena.isActive) {
       dragonArena.exitArena(controls);
       showToast('Returned to Overworld from Calamity Caldera!');
     } else {
+      if (stukaFlight.isActive) stukaFlight.exitFlightMode(controls);
+      if (dragonFlight.isActive) dragonFlight.exitFlightMode(controls);
       dragonArena.enterArena(controls);
-      showToast('⚡ ENTERED DRAGON CALDERA! Defeat the Three-Headed Titan! (Press F8 to Exit)');
+      showToast('⚡ ENTERED DRAGON CALDERA! Defeat the Three-Headed Titan! (Press F9 to Exit)');
     }
     return;
   }
@@ -643,6 +669,8 @@ function executeConsoleCommand(cmdStr) {
       if (vignetteEl) vignetteEl.style.display = 'none';
       showToast('Exited Stuka Flight Mode (On Foot)');
     } else {
+      if (dragonFlight.isActive) dragonFlight.exitFlightMode(controls);
+      if (dragonArena.isActive) dragonArena.exitArena(controls);
       skyLeviathan.applyReelAtmosphere(scene, renderer);
       if (vignetteEl) vignetteEl.style.display = 'block';
       stukaFlight.enterFlightMode(controls.playerPosition, camera);
@@ -651,6 +679,20 @@ function executeConsoleCommand(cmdStr) {
         skyLeviathan.spawn(spawnPos);
       }
       showToast('✈️ Boarded Stuka Ju 87! [L-Click]: MG-17, [R-Click]: Bomb, [V]: Flares, [Space]: Boost', 5000);
+    }
+  } else if (cmd === 'wyvern' || cmd === 'dragonrider' || cmd === 'dragonflight') {
+    const vignetteEl = document.getElementById('reel-cinematic-vignette');
+    if (dragonFlight.isActive) {
+      dragonFlight.exitFlightMode(controls);
+      showToast('Dismounted Golden Wyvern (On Foot)');
+    } else {
+      if (stukaFlight.isActive) {
+        stukaFlight.exitFlightMode(controls);
+        if (vignetteEl) vignetteEl.style.display = 'none';
+      }
+      if (dragonArena.isActive) dragonArena.exitArena(controls);
+      dragonFlight.enterFlightMode(controls.playerPosition, camera);
+      showToast('🐉 Mounted Soaring Golden Wyvern! [L-Click]: Fireball, [R-Click/E]: Roar, [Space]: Boost, [V]: Fire Surge', 6000);
     }
   } else if (cmd === 'leviathan') {
     skyLeviathan.applyReelAtmosphere(scene, renderer);
@@ -1170,6 +1212,9 @@ function returnToLauncherScreen() {
   if (stukaFlight && stukaFlight.isActive) {
     stukaFlight.exitFlightMode(controls);
   }
+  if (dragonFlight && dragonFlight.isActive) {
+    dragonFlight.exitFlightMode(controls);
+  }
   const vignetteEl = document.getElementById('reel-cinematic-vignette');
   if (vignetteEl) vignetteEl.style.display = 'none';
   if (document.pointerLockElement) {
@@ -1200,7 +1245,11 @@ function launchGameEngineFromLauncher() {
 
   // Apply chosen expedition mode
   const vignetteEl = document.getElementById('reel-cinematic-vignette');
-  if (selectedGameMode === 'sky_dogfight') {
+  if (selectedGameMode === 'golden_dragon_flight' || selectedGameMode === 'golden_wyvern') {
+    if (vignetteEl) vignetteEl.style.display = 'none';
+    dragonFlight.enterFlightMode(controls.playerPosition, camera);
+    showToast('🐉 GOLDEN SUNSET DRAGON RIDER: Soar across the Sea of Clouds! [L-Click]: Fireball, [R-Click/E]: Roar, [Space]: Boost, [V]: Fire Surge', 6000);
+  } else if (selectedGameMode === 'sky_dogfight') {
     skyLeviathan.applyReelAtmosphere(scene, renderer);
     if (vignetteEl) vignetteEl.style.display = 'block';
     stukaFlight.enterFlightMode(controls.playerPosition, camera);
@@ -1466,6 +1515,20 @@ function animate() {
       showToast('Returned to Overworld from Calamity Caldera!');
     }
     dragonArena.update(deltaTime, controls.playerPosition);
+    reelPostStack.render(deltaTime);
+    return;
+  }
+
+  // Golden Sunset Dragon Flight System (Phase 21: 60 FPS Soaring Wyvern Mount)
+  if (dragonFlight && dragonFlight.isActive) {
+    controls.playerPosition.copy(dragonFlight.position);
+    world.updateChunks(dragonFlight.position, false, dragonFlight.getForwardVector());
+
+    lights.updateSunFollow(dragonFlight.position);
+    world.updateFluids(deltaTime);
+    sharedShaderUniforms.uTime.value += deltaTime;
+
+    dragonFlight.update(deltaTime);
     reelPostStack.render(deltaTime);
     return;
   }
