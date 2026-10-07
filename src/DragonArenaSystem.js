@@ -51,15 +51,16 @@ export class DragonArenaSystem {
 
   initMaterials() {
     this.mats = {
-      deepslate: new THREE.MeshStandardMaterial({ color: 0x181c19, roughness: 0.85 }),
-      bedrock: new THREE.MeshStandardMaterial({ color: 0x0f1310, roughness: 0.92 }),
-      obsidian: new THREE.MeshStandardMaterial({ color: 0x0c0912, roughness: 0.32, metalness: 0.3 }),
-      toxicLava: new THREE.MeshBasicMaterial({ color: 0x39ff14 }),
-      neonCrystal: new THREE.MeshBasicMaterial({ color: 0x55ff33 }),
-      dragonScale: new THREE.MeshStandardMaterial({ color: 0x0c2514, roughness: 0.55 }),
-      emeraldPlate: new THREE.MeshStandardMaterial({ color: 0x185526, roughness: 0.45 }),
-      ivory: new THREE.MeshStandardMaterial({ color: 0xdfdac5, roughness: 0.30 }),
-      fireCore: new THREE.MeshBasicMaterial({ color: 0x66ff33 })
+      deepslate: new THREE.MeshStandardMaterial({ color: 0x10151c, roughness: 0.85 }),
+      bedrock: new THREE.MeshStandardMaterial({ color: 0x090d13, roughness: 0.92 }),
+      obsidian: new THREE.MeshStandardMaterial({ color: 0x070a0f, roughness: 0.32, metalness: 0.4 }),
+      toxicLava: new THREE.MeshBasicMaterial({ color: 0x0284c7 }), // Abyssal cyan rift fissures
+      neonCrystal: new THREE.MeshBasicMaterial({ color: 0x5be7ff }), // Cyan bioluminescent glow
+      dragonScale: new THREE.MeshStandardMaterial({ color: 0x0c1017, roughness: 0.65, metalness: 0.35 }), // Abyssal obsidian void scales
+      emeraldPlate: new THREE.MeshStandardMaterial({ color: 0x161e2b, roughness: 0.50, metalness: 0.25 }), // Charcoal abyssal armor plates
+      ivory: new THREE.MeshStandardMaterial({ color: 0xdde5ed, roughness: 0.30 }),
+      fireCore: new THREE.MeshBasicMaterial({ color: 0x38bdf8 }), // Cyan plasma breath core
+      cyanOrb: new THREE.MeshBasicMaterial({ color: 0x67e8f9 }), // Signature reel glowing cyan spine nodes
     };
   }
 
@@ -175,6 +176,15 @@ export class DragonArenaSystem {
       this.dragon.add(plate);
     }
 
+    // Signature Reel Detail: Double Track of Glowing Cyan Bioluminescent Spine Orbs
+    for (let o = -1.4; o <= 1.4; o += 0.7) {
+      [-1.3, 1.3].forEach(ox => {
+        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), this.mats.cyanOrb);
+        orb.position.set(ox, 1.9, o);
+        this.dragon.add(orb);
+      });
+    }
+
     // 4 Heavy Legs
     [[-2.2, 1.4], [2.2, 1.4], [-2.0, -1.8], [2.0, -1.8]].forEach(([lx, lz]) => {
       const leg = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.6, 1.4), this.mats.dragonScale);
@@ -282,13 +292,13 @@ export class DragonArenaSystem {
     `;
 
     this.uiContainer.innerHTML = `
-      <div style="font-size: 16px; font-weight: bold; letter-spacing: 3px; color: #44ff55; text-shadow: 0 0 10px #00ff44, 2px 2px #000; margin-bottom: 5px;">
-        THREE-HEADED EMERALD TITAN
+      <div style="font-size: 16px; font-weight: bold; letter-spacing: 3px; color: #67e8f9; text-shadow: 0 0 10px #0284c7, 2px 2px #000; margin-bottom: 5px;">
+        ABYSSAL VOID TITAN (CALDERA WYRM)
       </div>
-      <div style="background: rgba(10, 20, 12, 0.85); border: 2px solid #228833; border-radius: 4px; padding: 3px; box-shadow: 0 0 14px rgba(50, 255, 80, 0.4);">
-        <div id="dragon-boss-hp-bar" style="background: linear-gradient(90deg, #11aa33, #44ff66); height: 18px; width: 100%; border-radius: 2px; transition: width 0.15s ease-out;"></div>
+      <div style="background: rgba(8, 14, 20, 0.9); border: 2px solid #0284c7; border-radius: 4px; padding: 3px; box-shadow: 0 0 14px rgba(56, 189, 248, 0.5);">
+        <div id="dragon-boss-hp-bar" style="background: linear-gradient(90deg, #0284c7, #38bdf8, #a5f3fc); height: 18px; width: 100%; border-radius: 2px; transition: width 0.15s ease-out;"></div>
       </div>
-      <div id="dragon-boss-status" style="font-size: 11px; color: #aaffaa; margin-top: 5px; text-shadow: 1px 1px #000;">
+      <div id="dragon-boss-status" style="font-size: 11px; color: #bae6fd; margin-top: 5px; text-shadow: 1px 1px #000;">
         FREE WILL (NEUTRAL) — Titan is roaming peacefully. Attack to engage!
       </div>
     `;

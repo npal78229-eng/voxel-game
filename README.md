@@ -3,7 +3,10 @@
 [![Engine](https://img.shields.io/badge/Three.js-r170-black?logo=threedotjs)](https://threejs.org/)
 [![Bundler](https://img.shields.io/badge/Vite-6.4-646CFF?logo=vite)](https://vitejs.dev/)
 [![Desktop](https://img.shields.io/badge/Electron-Desktop_Ready-47848F?logo=electron)](https://www.electronjs.org/)
-[![QA Suite](https://img.shields.io/badge/QA_Suite-55%2F55_Passing-4ade80)]()
+[![Flight](https://img.shields.io/badge/Stuka_Ju_87-Dogfight_Flight_Mode-38bdf8)]()
+[![Leviathan](https://img.shields.io/badge/Sky_Leviathan-28_Seg_Void_Wyrm-0284c7)]()
+[![Reel](https://img.shields.io/badge/Instagram_Reel-Dogfight_Recreation-ec4899)]()
+[![QA Suite](https://img.shields.io/badge/QA_Suite-60%2F60_Passing-4ade80)]()
 [![Village](https://img.shields.io/badge/Village_v3-32_Structures_%2B_Villagers-10b981)]()
 [![Clans](https://img.shields.io/badge/Clan_Flags-5_Territories-8b5cf6)]()
 [![Boss](https://img.shields.io/badge/Boss_Dimension-Calamity_Caldera-ef4444)]()
@@ -114,6 +117,7 @@ voxel-game/
 │   ├── collision.js                 # 0.6x1.8 AABB collision solver with axis-separated step resolution
 │   ├── controls.js                  # FirstPersonController, buoyancy, swimming, drowning & fly mode
 │   ├── daylightBurn.js              # Open-sky daylight burn raycasting & shade detection
+│   ├── DragonArenaSystem.js         # Calamity Caldera dimension, Three-Headed Titan boss & obsidian altar
 │   ├── hotbar.js                    # 9-slot Hotbar, 36-slot Inventory & 2x2 Crafting Grid
 │   ├── inventory.js                 # Stack-based item storage (max 64) & crafting recipes
 │   ├── lighting.js                  # Sun/moon directional light with texel-snapped shadow mapping
@@ -123,8 +127,10 @@ voxel-game/
 │   ├── polish.js                    # Web Audio SFX, atmospheric soundscapes, fireflies, sun/moon/stars & mobs
 │   ├── projectiles.js               # Magic projectile pool & swept collision testing
 │   ├── raycaster.js                 # 3D DDA voxel traversal raycaster & wireframe selection box
+│   ├── SkyLeviathan.js              # Colossal 28-segment Void Leviathan wyrm with dual-track glowing cyan orbs & combat AI
 │   ├── statusEffects.js             # Player status effects (Poison, Bleed, Stagger, Fear, Weakness, Soul Drain)
 │   ├── storage.js                   # IndexedDB & Electron IPC diff persistence engine
+│   ├── StukaFlightSystem.js         # Authentic Stuka Ju 87 flight simulator, 7.92mm MG-17s, bombs, sirens & tactical HUD
 │   └── world.js                     # Chunk manager, Web Worker dispatcher & fluid simulation coordinator
 ```
 
@@ -293,6 +299,57 @@ The Titan is endowed with neutral **Free Will**:
   - **`RETALIATE_CIRCLING`:** Executes tight strafing maneuvers ($r = 24\text{m}$) while firing green toxic fire bursts from all three roaring heads.
 - **Dynamic Boss Health Bar HUD:** Real-time top-screen health bar display showing the Titan's remaining vitality out of 1,000 HP and current combat status.
 - **Exiting the Dimension:** Players can return to the Overworld village at any time by stepping into the Caldera Return Portal at the perimeter, or by pressing **`F8`** or entering `/dragon`.
+
+---
+
+## ✈️ Instagram Reel Dogfight Recreation: Stuka Ju 87 vs Abyssal Sky Leviathan (`src/StukaFlightSystem.js`, `src/SkyLeviathan.js`)
+
+Directly recreated from the viral aerial combat showcase (**Instagram: `@cloudgamesid` / user `IQBALISM`**), this mode delivers an authentic, high-octane 3D aerial dogfight against a colossal serpentine leviathan high in the cloudy overcast heavens.
+
+```mermaid
+flowchart TD
+    subgraph StukaSystem["Junkers Ju 87 Stuka Flight Combat System"]
+        Aero["3D Aerodynamics & Banking\n• Cruise: 176 KM/H | Boost: 230 KM/H\n• Inverted Gull Wings & Wheel Spats\n• Jericho Trumpet Dive Siren (>195 KM/H)"]
+        Weap["Luftwaffe Weapon Bay\n• Twin 7.92mm MG-17 Machine Guns\n• SC 250 (250kg Bombs)\n• 8x Defensive Heat Flares [V]"]
+        HUD["Tactical Flight Cockpit HUD\n• Speedometer & Throttle Bar\n• Bottom-Center Rotating Compass Rose\n• Center Reticle & Weapon Indicators"]
+    end
+
+    subgraph LeviathanBoss["Abyssal Sky Leviathan (Void Wyrm)"]
+        Model["Colossal 28-Segment Serpentine Body (>110m)\n• Obsidian Void Scales (#0c1017)\n• 56 Glowing Cyan Bioluminescent Spine Orbs (#5eeaff)\n• Horned Draconic Skull & Jaws"]
+        Kinematics["Sinuous 3D Inverse Kinematics\n• Serpentine Undulating Sine Waves\n• Sweeping Cloud Patrols\n• High-Velocity Interception Dives"]
+        Combat["Combat Attacks & Reactions\n• Cyan Void Plasma Orbs (Homing)\n• Flare Countermeasure Decoy Redirection\n• 2.2x Critical Headshot Multipliers"]
+    end
+
+    StukaSystem -->|"Twin MG-17 Bullets & 250kg Bombs"| LeviathanBoss
+    LeviathanBoss -->|"Cyan Void Plasma Barrage"| StukaSystem
+    StukaSystem -->|"Eject Heat Flares [V] to Decoy Orbs"| LeviathanBoss
+```
+
+### 1. Colossal Abyssal Sky Leviathan / Void Wyrm (`src/SkyLeviathan.js`)
+- **Colossal 28-Segment Serpentine Anatomy:** Measures over **110 meters in length**, articulating in real-time through distance constraints and mathematical serpentine sine-wave undulations.
+- **Deep Obsidian & Charcoal Texture:** High-contrast dark void scales (`#0c1017`) and charcoal dorsal plates (`#161c26`), matching the gloomy atmospheric aesthetic of the reel.
+- **Iconic Dual-Track Cyan Bioluminescent Orbs:** Symmetrically placed along both the left and right flanks of its spine across all 28 body segments (56 glowing nodes in total, `#5eeaff` with white cores `#ffffff`), which pulse rhythmically as the beast glides through overcast skies.
+- **Horned Dragon Skull & Jaw:** Articulated lower jaw that drops open during dives, sweeping obsidian horns, ivory teeth, glowing cyan eyes, and an internal plasma core.
+- **Homing Void Plasma Orbs & Flare Decoys:** Fires volleys of homing cyan plasma projectiles. When the player deploys Stuka heat flares (`[V]`), the plasma orbs track the flares instead, safely detonating away from the aircraft.
+- **Ballistics & Hit Detection:** All 28 body segments and the head feature 3D spherical hitboxes. Machine gun bullets inflict continuous damage, headshots score **2.2× critical multipliers**, and 250kg bombs cause devastating area explosions (150 damage).
+
+### 2. Junkers Ju 87 Stuka Flight Combat Mechanics (`src/StukaFlightSystem.js`)
+- **Procedural 3D Stuka Model:** Built with authentic Luftwaffe camouflage (`#2e3b2e`), Hellblau underside (`#768896`), eastern-front yellow cowling accents (`#d4a017`), inverted gull wings, wheel spats, transparent greenhouse canopy, and spinning propeller.
+- **Flight Physics & Control Feel:**
+  - **Cruise Airspeed:** 176 KM/H (matching the exact dial readout in the reel).
+  - **Engine Boost:** Press **`Space`** to engage emergency boost up to 230 KM/H.
+  - **Dive Brakes:** Hold **`Shift`** to deploy airbrakes and slow to 115 KM/H for precision bombing.
+  - **Pitch, Roll & Yaw:** Responsive mouse and WASD navigation with natural banking roll stabilization.
+- **Twin 7.92mm MG-17 Machine Guns:** High-velocity raycast ballistic tracers with muzzle flashes and synthesized cyclic firing rattle.
+- **SC 250 Dive Bomb Drop:** Gravity-affected 250kg aerial bomb with ballistic trajectory and ground/boss detonation.
+- **Defensive Heat Flares (`[V]`):** Ejects sparkling pyrotechnic countermeasure clusters that draw away homing plasma orbs.
+- **Jericho Trumpet Dive Siren:** Dynamically activates via Web Audio API during steep dives exceeding 195 KM/H with authentic acoustic pitch ramp.
+- **Tactical Flight Cockpit HUD:** Bottom-center rotating compass rose dial with needle, player heart display, left-hand `176 KM/H` digital speedometer and throttle gauge, and center flight reticle with ammunition status.
+
+### 3. Activating Stuka Flight Mode
+- **From Launcher:** Select the **`✈️ Sky Leviathan: Stuka Dogfight`** expedition card and click **START EXPEDITION**.
+- **In-Game Hotkey:** Press **`F7`** at any time to instantly mount/dismount the Stuka dive bomber.
+- **Console Commands:** Type **`/stuka`** to toggle flight mode, or **`/leviathan`** to summon the colossal wyrm into the overcast sky.
 
 ---
 
@@ -522,6 +579,8 @@ Press **`/`** during gameplay to open the command console and run any of the fol
 ### ⚔️ Player, Inventory & World Commands
 | Command | Example | Description |
 | :--- | :--- | :--- |
+| `F7` / `/stuka` | `F7` or `/stuka` | Mounts/dismounts the Junkers Ju 87 Stuka dive bomber for high-speed aerial dogfights |
+| `/leviathan` | `/leviathan` | Summons the colossal 28-segment Abyssal Sky Leviathan wyrm into the overcast sky |
 | `F8` / `/dragon` | `F8` or `/dragon` | Toggles entering/exiting the Calamity Caldera Three-Headed Titan Boss Dimension |
 | `/village` | `/village` | Teleports player directly to the Village central town square |
 | `/plantcheck` | `/plantcheck` | Scans loaded chunks for floating/misplaced cross-plane plants and ensures soil integrity |

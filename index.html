@@ -7,6 +7,286 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
+    <!-- STANDALONE GAME LAUNCHER STARTING SCREEN (v2.0) -->
+    <div id="game-launcher-screen" class="launcher-overlay">
+      <div class="launcher-backdrop"></div>
+      <div class="launcher-container">
+        <!-- Top Navigation Bar -->
+        <header class="launcher-topbar">
+          <div class="launcher-brand">
+            <div class="launcher-logo-cube"></div>
+            <div>
+              <h1 class="launcher-title">VOXEL REALMS</h1>
+              <div class="launcher-subbrand">
+                <span class="badge-edition">DESKTOP LAUNCHER v2.0</span>
+                <span class="badge-status">● SYSTEM READY (60 FPS)</span>
+              </div>
+            </div>
+          </div>
+          <nav class="launcher-tabs">
+            <button id="launcher-tab-btn-play" type="button" class="launcher-tab-btn active">🎮 Play / Launch</button>
+            <button id="launcher-tab-btn-settings" type="button" class="launcher-tab-btn">⚙️ Settings</button>
+            <button id="launcher-tab-btn-controls" type="button" class="launcher-tab-btn">⌨️ Controls</button>
+            <button id="launcher-tab-btn-news" type="button" class="launcher-tab-btn">📜 v2.0 Updates</button>
+            <button id="launcher-tab-btn-exit" type="button" class="launcher-tab-btn btn-exit" title="Exit to Desktop">✕ Quit</button>
+          </nav>
+        </header>
+
+        <!-- Main Body Panels -->
+        <div class="launcher-body">
+          <!-- 1. Play / Mode Select View -->
+          <div id="panel-play" class="launcher-panel active">
+            <div class="hero-showcase">
+              <div class="hero-content">
+                <span class="hero-tag">NEW EXPEDITION • CALDERA &amp; VILLAGES</span>
+                <h2 class="hero-title">ENTER THE VOXEL REALM</h2>
+                <p class="hero-desc">Choose your expedition profile below and press Start to launch into your standalone laptop game.</p>
+              </div>
+            </div>
+
+            <div class="mode-cards-container">
+              <!-- Mode Card 1: Survival & Village -->
+              <div class="mode-card active" data-mode="survival">
+                <div class="mode-card-header">
+                  <div class="mode-card-icon">🌲</div>
+                  <div class="mode-card-title-group">
+                    <h3>Survival &amp; Village Settlement</h3>
+                    <span class="mode-pill standard">Overworld v3</span>
+                  </div>
+                </div>
+                <p class="mode-card-desc">
+                  Spawn at the expansive 75-structure Village v3 with cobblestone paths, 5 waving Clan Banners, 16 custom mobs &amp; articulated villagers with look-at AI. Explore caverns and survive the night horror mobs.
+                </p>
+                <div class="mode-card-features">
+                  <span>🏘️ 32 Building Types</span>
+                  <span>🚩 5 Clan Crests</span>
+                  <span>🐾 16 Custom Mobs</span>
+                  <span>⚔️ Survival Combat</span>
+                </div>
+              </div>
+
+              <!-- Mode Card 2: Dragon Boss Arena -->
+              <div class="mode-card" data-mode="boss_arena">
+                <div class="mode-card-header">
+                  <div class="mode-card-icon">🐉</div>
+                  <div class="mode-card-title-group">
+                    <h3>Calamity Caldera: Boss Arena</h3>
+                    <span class="mode-pill boss">Dedicated Boss Arena</span>
+                  </div>
+                </div>
+                <p class="mode-card-desc">
+                  Jump directly into the Ancient Volcanic Caldera dimension! Battle the Three-Headed Emerald Titan at high-speed 60+ FPS with zero overworld overhead. Neutral free-will roaming &amp; retaliatory dive-bomb combat.
+                </p>
+                <div class="mode-card-features">
+                  <span>⚡ 100% Isolated 60 FPS</span>
+                  <span>🌋 110m Fractured Crags</span>
+                  <span>💚 Emerald Titan Boss</span>
+                  <span>🛡️ Retaliatory AI</span>
+                </div>
+              </div>
+
+              <!-- Mode Card 3: Creative Sandbox -->
+              <div class="mode-card" data-mode="creative">
+                <div class="mode-card-header">
+                  <div class="mode-card-icon">🕊️</div>
+                  <div class="mode-card-title-group">
+                    <h3>Creative Sandbox Builder</h3>
+                    <span class="mode-pill creative">Creative Mode</span>
+                  </div>
+                </div>
+                <p class="mode-card-desc">
+                  Zero gravity flight mode with instant block destruction and unlimited building. Inspect all 36 distinct textured blocks and build without limits.
+                </p>
+                <div class="mode-card-features">
+                  <span>🕊️ Free Fly Physics</span>
+                  <span>📦 All 36 Block Palette</span>
+                  <span>🔨 Instant Mining</span>
+                  <span>🌤️ Weather Control</span>
+                </div>
+              </div>
+
+              <!-- Mode Card 4: Sky Leviathan Dogfight (Instagram Reel Mode) -->
+              <div class="mode-card" data-mode="sky_dogfight">
+                <div class="mode-card-header">
+                  <div class="mode-card-icon">✈️</div>
+                  <div class="mode-card-title-group">
+                    <h3>Sky Leviathan: Stuka Dogfight</h3>
+                    <span class="mode-pill" style="background: rgba(14, 165, 233, 0.2); color: #38bdf8; border-color: #0284c7;">Reel Aerial Combat</span>
+                  </div>
+                </div>
+                <p class="mode-card-desc">
+                  Authentic Instagram Reel aerial dogfight recreation! Pilot a WWII Stuka Ju 87 dive bomber through gloomy overcast skies against the colossal 28-segment Void Leviathan with twin 7.92mm MG-17s, 250kg bombs, and tactical flight HUD.
+                </p>
+                <div class="mode-card-features">
+                  <span>✈️ Stuka Ju 87 Flight Mode</span>
+                  <span>🐉 28-Seg Void Wyrm</span>
+                  <span>🎯 Tactical Flight HUD</span>
+                  <span>💣 250kg Bombs &amp; Flares [V]</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. Settings View -->
+          <div id="panel-settings" class="launcher-panel">
+            <h2 class="panel-heading">Hardware &amp; Graphics Configuration</h2>
+            <p class="panel-sub">Optimized for Intel Core i5 &amp; NVIDIA GeForce GTX 1650 4GB Laptop GPU.</p>
+
+            <div class="settings-grid">
+              <div class="setting-item">
+                <label for="launcher-opt-quality">Graphics Quality Preset</label>
+                <select id="launcher-opt-quality" class="launcher-select">
+                  <option value="low">Low (Battery Saver / Fast)</option>
+                  <option value="medium">Medium (Standard)</option>
+                  <option value="high" selected>High (GTX 1650 Optimized 60 FPS)</option>
+                  <option value="ultra">Ultra (Max Soft Shadows)</option>
+                </select>
+                <span class="setting-hint">Adjusts shadow map resolution and pixel scaling for smooth frame rates.</span>
+              </div>
+
+              <div class="setting-item">
+                <label for="launcher-opt-distance">Chunk Render Radius</label>
+                <select id="launcher-opt-distance" class="launcher-select">
+                  <option value="3">3 Chunks (Lowest memory footprint)</option>
+                  <option value="4" selected>4 Chunks (Recommended for laptops)</option>
+                  <option value="6">6 Chunks (Far view distance)</option>
+                </select>
+                <span class="setting-hint">Higher distances show more world simultaneously via Web Worker pool.</span>
+              </div>
+
+              <div class="setting-item">
+                <label for="launcher-opt-volume">Master Sound Effects Volume</label>
+                <div class="slider-row">
+                  <input type="range" id="launcher-opt-volume" min="0" max="100" value="85" class="launcher-slider" />
+                  <span id="launcher-vol-label" class="slider-val">85%</span>
+                </div>
+                <span class="setting-hint">Controls Web Audio synthesizer volumes for block breaking, steps, and attacks.</span>
+              </div>
+
+              <div class="setting-item">
+                <label>Display Mode</label>
+                <div class="button-toggle-row">
+                  <button id="btn-toggle-fullscreen" type="button" class="launcher-btn secondary">Toggle Fullscreen (F11)</button>
+                </div>
+                <span class="setting-hint">Press F11 at any time during gameplay to toggle borderless full screen.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. Controls View -->
+          <div id="panel-controls" class="launcher-panel">
+            <h2 class="panel-heading">Controls &amp; Keybindings Guide</h2>
+            <div class="controls-guide-grid">
+              <div class="control-card">
+                <span class="key-badge">W A S D</span>
+                <span class="key-desc">Walk &bull; Strafe Navigation</span>
+              </div>
+              <div class="control-card">
+                <span class="key-badge">Space</span>
+                <span class="key-desc">Jump &bull; Ascend (Fly Mode)</span>
+              </div>
+              <div class="control-card">
+                <span class="key-badge">Shift</span>
+                <span class="key-desc">Sneak &bull; Descend (Fly Mode)</span>
+              </div>
+              <div class="control-card">
+                <span class="key-badge">Left-Click</span>
+                <span class="key-desc">Attack Mob &bull; Break Voxel Block</span>
+              </div>
+              <div class="control-card">
+                <span class="key-badge">Right-Click</span>
+                <span class="key-desc">Place Block &bull; Scoop/Place Bucket</span>
+              </div>
+              <div class="control-card">
+                <span class="key-badge">F7</span>
+                <span class="key-desc">Board / Exit Stuka Ju 87 Dive Bomber</span>
+              </div>
+              <div class="control-card">
+                <span class="key-badge">F8</span>
+                <span class="key-desc">Enter / Exit Dragon Caldera Dimension</span>
+              </div>
+              <div class="control-card">
+                <span class="key-badge">Space / Shift</span>
+                <span class="key-desc">Stuka Boost (230 km/h) &bull; Airbrakes (115 km/h)</span>
+              </div>
+              <div class="control-card">
+                <span class="key-badge">L-Click / R-Click</span>
+                <span class="key-desc">Twin 7.92mm MG-17 &bull; Drop 250kg Bomb</span>
+              </div>
+              <div class="control-card">
+                <span class="key-badge">V</span>
+                <span class="key-desc">Eject Stuka Heat Flares &bull; 1st/3rd Person</span>
+              </div>
+              <div class="control-card">
+                <span class="key-badge">E</span>
+                <span class="key-desc">Open 27-Slot Inventory &amp; 2x2 Crafting</span>
+              </div>
+              <div class="control-card">
+                <span class="key-badge">/</span>
+                <span class="key-desc">Open In-Game Command Console (/stuka, /leviathan)</span>
+              </div>
+              <div class="control-card">
+                <span class="key-badge">F3</span>
+                <span class="key-desc">Toggle Engine Telemetry Diagnostics</span>
+              </div>
+              <div class="control-card">
+                <span class="key-badge">F4</span>
+                <span class="key-desc">Toggle Mob Combat Ring &amp; Hitbox Visualizer</span>
+              </div>
+              <div class="control-card">
+                <span class="key-badge">Esc</span>
+                <span class="key-desc">Pause Menu &bull; Return to Launcher</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. Updates View -->
+          <div id="panel-news" class="launcher-panel">
+            <h2 class="panel-heading">Voxel Realms v2.0 — Release Highlights</h2>
+            <div class="news-list">
+              <div class="news-item">
+                <h3>✈️ Instagram Reel Mode: Stuka Ju 87 vs Abyssal Sky Leviathan</h3>
+                <p>Authentic aerial dogfight recreation based on viral Instagram showcase: pilot the inverted gull-wing Stuka Ju 87 dive bomber against a colossal 28-segment Void Leviathan wyrm. Features dual-track glowing cyan bioluminescent spine orbs, Jericho Trumpet dive siren, twin 7.92mm MG-17s, 250kg bombs, flare countermeasures, and tactical flight cockpit HUD!</p>
+              </div>
+              <div class="news-item">
+                <h3>🏘️ Village v3 Generation &amp; 5 Clan Flag Territories</h3>
+                <p>32 authentic structural types across a 75-building footprint including Town Hall, Smithy, Windmill, Market Square, and stone/gravel path networks with automatic terrain leveling. Features 5 waving 3D Clan Banners (Sword, Bow, Dragon, Magic, Shield).</p>
+              </div>
+              <div class="news-item">
+                <h3>🐾 Articulated Villagers &amp; 16 Sculpted Blender Mobs</h3>
+                <p>Articulated elders with folded-arms posture and artisan females with teal aprons and braids. Includes active head-tracking look-at AI within 6m. Mobs align dynamically to true terrain height when chunks stream in.</p>
+              </div>
+              <div class="news-item">
+                <h3>🐉 Three-Headed Emerald Titan: Calamity Caldera Dimension</h3>
+                <p>Standalone volcanic arena dimension that isolates boss combat from heavy overworld loops, dedicating 100% frame budget to deliver smooth 60+ FPS on laptop GPUs. Features neutral free-will roaming, perch roars, and retaliatory dive-bomb green fire attacks.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Launch Action Footer -->
+        <footer class="launcher-footer">
+          <div class="footer-left">
+            <div class="selected-mode-indicator">
+              <span class="indicator-label">CURRENT SELECTION:</span>
+              <span id="launcher-selected-mode-label" class="indicator-name">Survival &amp; Village Settlement</span>
+            </div>
+            <div class="hardware-pill">
+              <span>NVIDIA GTX 1650 &bull; 60 FPS Target &bull; Standalone Desktop</span>
+            </div>
+          </div>
+          <div class="footer-right">
+            <button id="launcher-start-btn" type="button" class="launcher-start-btn">
+              <span class="btn-glow"></span>
+              <span class="btn-icon">▶</span>
+              <span class="btn-title">START GAME</span>
+            </button>
+          </div>
+        </footer>
+
+      </div>
+    </div>
+
     <!-- Phase U1.3: Real Stage-Driven Loading Screen -->
     <div id="loading-screen" class="loading-overlay">
       <div class="loading-box">
@@ -23,6 +303,7 @@
     <div id="underwater-overlay" class="screen-tint underwater hidden"></div>
     <div id="lava-overlay" class="screen-tint in-lava hidden"></div>
     <div id="hurt-flash-overlay" class="screen-tint hurt hidden"></div>
+    <div id="reel-cinematic-vignette"></div>
 
     <!-- Phase U6.2: Toast Notification Pill -->
     <div id="toast-banner" class="toast-banner hidden">World Saved</div>
@@ -30,7 +311,8 @@
     <!-- Phase U6.2: Top-Right Compact Context Hint Bar (Always visible; F3 opens full debug) -->
     <div id="top-hint-bar">
       <span id="biome-pill">Biome: Verdant Meadows</span>
-      <span><b>[B]</b> Spawn Mob (14) 🐾</span>
+      <span><b>[F7]</b> Stuka ✈️</span>
+      <span><b>[B]</b> Spawn Mob 🐾</span>
       <span><b>[F3]</b> Debug</span>
       <span><b>[E]</b> Inventory</span>
       <span><b>[V]</b> Camera</span>
@@ -124,11 +406,13 @@
         <div class="menu-grid">
           <button id="menu-btn-resume" type="button" class="menu-btn primary">Resume Game</button>
           <button id="menu-btn-save" type="button" class="menu-btn">Save World Now [P]</button>
+          <button id="menu-btn-launcher" type="button" class="menu-btn highlight">⚙️ Return to Launcher</button>
           <button id="menu-btn-time" type="button" class="menu-btn">Advance Time of Day [T]</button>
           <button id="menu-btn-weather" type="button" class="menu-btn">Cycle Weather (Clear / Rain / Snow)</button>
           <button id="menu-btn-fly" type="button" class="menu-btn">Toggle Walk / Fly Physics [F]</button>
           <button id="menu-btn-quality" type="button" class="menu-btn">Graphics Quality: High</button>
-          <button id="menu-btn-new" type="button" class="menu-btn danger">New World (Custom Seed)</button>
+          <button id="menu-btn-new" type="button" class="menu-btn">New World (Custom Seed)</button>
+          <button id="menu-btn-quit" type="button" class="menu-btn danger">✕ Quit to Desktop</button>
         </div>
 
         <div class="menu-footer">

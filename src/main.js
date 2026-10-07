@@ -24,6 +24,8 @@ import { FLUID_CONFIG } from './config/fluids.js';
 import { LightningSystem } from './weather/Lightning.js';
 import { DragonArenaSystem } from './DragonArenaSystem.js';
 import { VillageSystem } from './world/VillageSystem.js';
+import { StukaFlightSystem } from './StukaFlightSystem.js';
+import { SkyLeviathan } from './SkyLeviathan.js';
 
 // ============================================================================
 // Voxel Realms v2.0 — Complete Upgrade Suite (Phases U0–U7)
@@ -112,6 +114,10 @@ const mobs = new PassiveMobManager(scene, world, sfx, particles);
 const lightning = new LightningSystem(scene, world, mobs, sfx);
 const dragonArena = new DragonArenaSystem(scene, camera, renderer);
 const villageSystem = new VillageSystem(world, scene, mobs);
+const stukaFlight = new StukaFlightSystem(scene, camera, renderer, world);
+const skyLeviathan = new SkyLeviathan(scene, camera, renderer);
+window.stukaFlight = stukaFlight;
+window.skyLeviathan = skyLeviathan;
 
 // Generate complete Village v3 with Clan Flags and Ancient Caldera Portal next to player spawn
 // (Registered into chunk diff index in ~10ms before chunk meshing so all chunks mesh once without freeze)
@@ -266,6 +272,7 @@ const controls = new FirstPersonController(
   }
 );
 controls.syncFromCamera();
+controls.paused = true; // Initially paused until user presses START GAME in launcher
 
 // 11. STACK INVENTORY & CRAFTING
 let ui = null;
@@ -456,6 +463,27 @@ window.addEventListener('keydown', (event) => {
     return;
   }
 
+  // F7 toggles Stuka Flight Dogfight Mode (Instagram Reel Mode)
+  if (event.code === 'F7') {
+    event.preventDefault();
+    const vignetteEl = document.getElementById('reel-cinematic-vignette');
+    if (stukaFlight.isActive) {
+      stukaFlight.exitFlightMode(controls);
+      if (vignetteEl) vignetteEl.style.display = 'none';
+      showToast('Exited Stuka Flight Mode (On Foot)');
+    } else {
+      skyLeviathan.applyReelAtmosphere(scene, renderer);
+      if (vignetteEl) vignetteEl.style.display = 'block';
+      stukaFlight.enterFlightMode(controls.playerPosition, camera);
+      if (!skyLeviathan.isActive) {
+        const spawnPos = stukaFlight.position.clone().add(new THREE.Vector3(0, 35, 110));
+        skyLeviathan.spawn(spawnPos);
+      }
+      showToast('✈️ Boarded Stuka Ju 87! [L-Click]: MG-17, [R-Click]: Bomb, [V]: Flares, [Space]: Boost', 5000);
+    }
+    return;
+  }
+
   // F8 toggles Dragon Boss Dimension (Calamity Caldera)
   if (event.code === 'F8') {
     event.preventDefault();
@@ -603,6 +631,29 @@ function executeConsoleCommand(cmdStr) {
       `[OreStats (${oreReport.loadedChunks} chunks)] Coal:${c.coal_ore}(${a.coal_ore}/c) Iron:${c.iron_ore}(${a.iron_ore}/c) Gold:${c.gold_ore}(${a.gold_ore}/c) Gem:${c.gem_ore}(${a.gem_ore}/c)`,
       6500
     );
+  } else if (cmd === 'stuka') {
+    const vignetteEl = document.getElementById('reel-cinematic-vignette');
+    if (stukaFlight.isActive) {
+      stukaFlight.exitFlightMode(controls);
+      if (vignetteEl) vignetteEl.style.display = 'none';
+      showToast('Exited Stuka Flight Mode (On Foot)');
+    } else {
+      skyLeviathan.applyReelAtmosphere(scene, renderer);
+      if (vignetteEl) vignetteEl.style.display = 'block';
+      stukaFlight.enterFlightMode(controls.playerPosition, camera);
+      if (!skyLeviathan.isActive) {
+        const spawnPos = stukaFlight.position.clone().add(new THREE.Vector3(0, 35, 100));
+        skyLeviathan.spawn(spawnPos);
+      }
+      showToast('✈️ Boarded Stuka Ju 87! [L-Click]: MG-17, [R-Click]: Bomb, [V]: Flares, [Space]: Boost', 5000);
+    }
+  } else if (cmd === 'leviathan') {
+    skyLeviathan.applyReelAtmosphere(scene, renderer);
+    const vignetteEl = document.getElementById('reel-cinematic-vignette');
+    if (vignetteEl) vignetteEl.style.display = 'block';
+    const spawnPos = (stukaFlight.isActive ? stukaFlight.position : controls.playerPosition).clone().add(new THREE.Vector3(0, 50, 80));
+    skyLeviathan.spawn(spawnPos);
+    showToast('🐉 Abyssal Sky Leviathan spawned! Engage with Stuka [F7] or bow!', 5000);
   } else if (cmd === 'dragon' || cmd === 'caldera' || cmd === 'boss') {
     if (dragonArena.isActive) {
       dragonArena.exitArena(controls);
@@ -1018,6 +1069,151 @@ document.getElementById('menu-btn-new')?.addEventListener('click', () => {
   performNewGame();
 });
 
+// ============================================================================
+// STANDALONE DESKTOP GAME LAUNCHER CONTROLLER (v2.0)
+// Manages starting game screen, mode selection, hardware options, and launch
+// ============================================================================
+const launcherScreenEl = document.getElementById('game-launcher-screen');
+const launcherStartBtn = document.getElementById('launcher-start-btn');
+const launcherSelectedModeLabel = document.getElementById('launcher-selected-mode-label');
+
+let selectedGameMode = 'survival';
+let isGameActive = false;
+
+// 1. Launcher Tab Switching
+const launcherTabs = [
+  { btn: document.getElementById('launcher-tab-btn-play'), panel: document.getElementById('panel-play') },
+  { btn: document.getElementById('launcher-tab-btn-settings'), panel: document.getElementById('panel-settings') },
+  { btn: document.getElementById('launcher-tab-btn-controls'), panel: document.getElementById('panel-controls') },
+  { btn: document.getElementById('launcher-tab-btn-news'), panel: document.getElementById('panel-news') },
+];
+
+launcherTabs.forEach(({ btn, panel }) => {
+  btn?.addEventListener('click', () => {
+    launcherTabs.forEach(t => {
+      t.btn?.classList.remove('active');
+      t.panel?.classList.remove('active');
+    });
+    btn.classList.add('active');
+    panel?.classList.add('active');
+  });
+});
+
+function quitDesktopGame() {
+  fetch('/api/quit').catch(() => {});
+  setTimeout(() => window.close(), 150);
+}
+
+document.getElementById('launcher-tab-btn-exit')?.addEventListener('click', quitDesktopGame);
+document.getElementById('menu-btn-quit')?.addEventListener('click', quitDesktopGame);
+
+// 2. Mode Card Selection
+const modeCards = document.querySelectorAll('.mode-card');
+modeCards.forEach((card) => {
+  card.addEventListener('click', () => {
+    modeCards.forEach(c => c.classList.remove('active'));
+    card.classList.add('active');
+    selectedGameMode = card.dataset.mode || 'survival';
+
+    const h3El = card.querySelector('h3');
+    if (launcherSelectedModeLabel && h3El) {
+      launcherSelectedModeLabel.textContent = h3El.textContent;
+    }
+  });
+});
+
+// 3. Hardware & Quality Settings
+document.getElementById('launcher-opt-quality')?.addEventListener('change', (e) => {
+  const val = e.target.value;
+  if (val === 'low') qualityIndex = 0;
+  else if (val === 'medium') qualityIndex = 1;
+  else if (val === 'high') qualityIndex = 2;
+  else if (val === 'ultra') qualityIndex = 3;
+
+  renderer.shadowMap.enabled = qualityIndex >= 1;
+  renderer.setPixelRatio(qualityIndex === 0 ? 1 : Math.min(window.devicePixelRatio, qualityIndex >= 2 ? 1.5 : 1));
+  const qBtn = document.getElementById('menu-btn-quality');
+  if (qBtn) qBtn.textContent = `Graphics Quality: ${qualityNames[qualityIndex]}`;
+});
+
+const volumeSliderEl = document.getElementById('launcher-opt-volume');
+const volumeValLabel = document.getElementById('launcher-vol-label');
+volumeSliderEl?.addEventListener('input', (e) => {
+  if (volumeValLabel) volumeValLabel.textContent = `${e.target.value}%`;
+});
+
+document.getElementById('btn-toggle-fullscreen')?.addEventListener('click', () => {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen().catch(() => {});
+  }
+});
+
+// 4. Return to Launcher from Pause Menu
+function returnToLauncherScreen() {
+  isGameActive = false;
+  controls.paused = true;
+  if (stukaFlight && stukaFlight.isActive) {
+    stukaFlight.exitFlightMode(controls);
+  }
+  const vignetteEl = document.getElementById('reel-cinematic-vignette');
+  if (vignetteEl) vignetteEl.style.display = 'none';
+  if (document.pointerLockElement) {
+    document.exitPointerLock();
+  }
+  togglePauseMenu(false);
+  launcherScreenEl?.classList.remove('hidden-launcher');
+}
+
+document.getElementById('menu-btn-launcher')?.addEventListener('click', () => {
+  returnToLauncherScreen();
+});
+
+// 5. START GAME Launch Sequence
+launcherStartBtn?.addEventListener('click', () => {
+  launchGameEngineFromLauncher();
+});
+
+function launchGameEngineFromLauncher() {
+  isGameActive = true;
+  controls.paused = false;
+
+  // Sound chime
+  sfx?.playPlace();
+
+  // Hide launcher overlay with smooth transition
+  launcherScreenEl?.classList.add('hidden-launcher');
+
+  // Apply chosen expedition mode
+  const vignetteEl = document.getElementById('reel-cinematic-vignette');
+  if (selectedGameMode === 'sky_dogfight') {
+    skyLeviathan.applyReelAtmosphere(scene, renderer);
+    if (vignetteEl) vignetteEl.style.display = 'block';
+    stukaFlight.enterFlightMode(controls.playerPosition, camera);
+    const spawnPos = stukaFlight.position.clone().add(new THREE.Vector3(0, 35, 120));
+    skyLeviathan.spawn(spawnPos);
+    showToast('✈️ STUKA DOGFIGHT: Engage the Abyssal Sky Leviathan! [L-Click]: MG-17, [R-Click]: Bomb, [V]: Flares', 6000);
+  } else if (selectedGameMode === 'boss_arena') {
+    if (vignetteEl) vignetteEl.style.display = 'none';
+    dragonArena?.enterArena(controls);
+    showToast('⚡ Jumped into Calamity Caldera from Launcher! Defeat the Abyssal Void Titan!', 4500);
+  } else if (selectedGameMode === 'creative') {
+    if (vignetteEl) vignetteEl.style.display = 'none';
+    controls.isFlyMode = true;
+    showToast('🕊️ Creative Flight Mode Enabled (Infinite Flight & Build)', 3500);
+  } else {
+    if (vignetteEl) vignetteEl.style.display = 'none';
+    controls.isFlyMode = false;
+    showToast('🌲 Welcome to Voxel Realms! Settlement Village is ahead.', 3500);
+  }
+
+  // Request pointer lock for direct 3D gameplay
+  setTimeout(() => {
+    renderer.domElement.requestPointerLock();
+  }, 250);
+}
+
 // 15. COMBAT & BLOCK INTERACTION (Left-Click Attack/Break, Right-Click Place)
 window.addEventListener('contextmenu', (event) => event.preventDefault());
 
@@ -1049,6 +1245,19 @@ renderer.domElement.addEventListener('mousedown', (event) => {
         sfx.playAttackHit();
         particles.spawnBurst(dPos.x, dPos.y + 1, dPos.z, 'emerald_ore', 14);
         showToast(`💥 Hit Three-Headed Titan! Boss HP: ${dragonArena.bossHP}/${dragonArena.bossMaxHP}`, 1800);
+        return;
+      }
+    }
+
+    // Boss fight hit detection against the Sky Leviathan (Void Wyrm)
+    if (skyLeviathan && skyLeviathan.isActive) {
+      const rayPos = controls.playerPosition.clone();
+      const lookRay = lookDirection.clone();
+      const hit = skyLeviathan.checkHit(rayPos.clone().add(lookRay.clone().multiplyScalar(35)), 12.0);
+      if (hit) {
+        skyLeviathan.takeDamage(finalDmg * 5, hit);
+        sfx.playAttackHit();
+        showToast(`💥 Hit Sky Leviathan! HP: ${Math.round(skyLeviathan.hp)}/${skyLeviathan.maxHp}`, 1600);
         return;
       }
     }
@@ -1243,6 +1452,23 @@ function animate() {
     dragonArena.update(deltaTime, controls.playerPosition);
     renderer.render(scene, camera);
     return;
+  }
+
+  // Stuka Flight & Sky Leviathan Combat System (100% Dedicated 60 FPS Flight Dynamics)
+  if (stukaFlight && stukaFlight.isActive) {
+    stukaFlight.update(deltaTime, skyLeviathan, (dmg, part) => {
+      sfx.playAttackHit();
+      const critText = part === 'head' ? 'CRITICAL HEADSHOT!' : 'HIT!';
+      showToast(`💥 ${critText} -${Math.round(dmg)} HP on Leviathan!`, 750);
+    });
+    skyLeviathan.update(deltaTime, stukaFlight.position, stukaFlight);
+    renderer.render(scene, camera);
+    return;
+  }
+
+  // Update Sky Leviathan if roaming the sky while player is on foot
+  if (skyLeviathan && skyLeviathan.isActive) {
+    skyLeviathan.update(deltaTime, controls.playerPosition, null);
   }
 
   // 3. Update Sky, Animated Fluids, Mobs & Particles
